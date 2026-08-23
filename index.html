@@ -8,6 +8,7 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { background:#000; color:#fff; font-family: Arial, sans-serif; }
 
+    /* Fixed background stays static */
     .bg {
       position: fixed;
       inset: 0;
@@ -15,6 +16,32 @@
       z-index: 0;
     }
 
+    /* White header sits ABOVE background and scrolls away */
+    .hero-header {
+      position: relative;
+      height: 230px;
+      z-index: 30;
+    }
+    .hero-header .header-bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .hero-header .header-logo {
+      position: absolute;
+      left: 50%;
+      top: 52%;
+      transform: translate(-50%, -50%);
+      width: min(42vw, 520px);
+      height: auto;
+      display: block;
+      z-index: 31;
+    }
+
+    /* Bleed lines layer: fixed, behind content, above bg */
     .lines-wrap {
       position: fixed;
       left: 50%;
@@ -23,57 +50,33 @@
       width: min(22vw, 360px);
       height: 80vh;
       overflow: hidden;
-      z-index: 1; /* behind content */
+      z-index: 10;
       pointer-events: none;
     }
-
     .lines {
       width: 100%;
       height: 100%;
       object-fit: contain;
       object-position: top center;
-      clip-path: inset(100% 0 0 0); /* hidden initially */
-      opacity: 0.95;
+      clip-path: inset(100% 0 0 0); /* hidden until trigger */
+      opacity: 0.96;
+      display: block;
     }
 
-    .hero-header {
+    /* Content above lines */
+    main.content {
       position: relative;
-      height: 230px;
-      z-index: 3;
+      z-index: 20;
     }
-
-    .hero-header img.header-bg {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    .hero-header img.header-logo {
-      position: absolute;
-      left: 50%;
-      top: 52%;
-      transform: translate(-50%, -50%);
-      width: min(42vw, 520px);
-      height: auto;
-    }
-
-    .content {
-      position: relative;
-      z-index: 2; /* above lines */
-    }
-
     .panel {
       min-height: 100vh;
       display: grid;
       place-items: center;
-      text-align: center;
       padding: 24px;
+      text-align: center;
     }
-
     .chip {
-      border: 1px solid rgba(255,255,255,0.4);
+      border: 1px solid rgba(255,255,255,0.45);
       background: rgba(0,0,0,0.45);
       padding: 12px 18px;
       letter-spacing: 0.08em;
@@ -82,22 +85,22 @@
 
     @media (max-width: 900px) {
       .hero-header { height: 160px; }
-      .hero-header img.header-logo { width: min(68vw, 420px); }
-      .lines-wrap { top: 14.5%; width: min(34vw, 300px); }
+      .hero-header .header-logo { width: min(68vw, 420px); }
+      .lines-wrap { top: 14.5%; width: min(34vw, 300px); height: 76vh; }
     }
   </style>
 </head>
 <body>
-  <div class="bg"></div>
-
-  <div class="lines-wrap">
-    <img class="lines" src="./lines-animation.png" alt="" />
-  </div>
+  <div class="bg" aria-hidden="true"></div>
 
   <header class="hero-header" id="heroHeader">
     <img class="header-bg" src="./header.png" alt="" />
     <img class="header-logo" src="./header-logo.png" alt="Wade Myers" />
   </header>
+
+  <div class="lines-wrap" aria-hidden="true">
+    <img class="lines" id="lines" src="./lines-animation.png" alt="" />
+  </div>
 
   <main class="content">
     <section id="listen" class="panel"><div class="chip">Listen</div></section>
@@ -109,24 +112,26 @@
 
   <script>
     const header = document.getElementById('heroHeader');
-    const lines = document.querySelector('.lines');
-    const RANGE = 1500; // scroll distance to fully reveal lines
+    const lines = document.getElementById('lines');
+    const REVEAL_RANGE = 1500; // px to fully reveal after trigger
 
     const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-    function tick() {
+    function animate() {
+      // Start ONLY once header is no longer fully visible:
+      // header bottom <= 0 means header has fully exited viewport.
       const headerBottom = header.getBoundingClientRect().bottom;
-      const startedAmount = Math.max(0, -headerBottom); // starts when header is out of view
-      const progress = clamp(startedAmount / RANGE, 0, 1);
+      const pastTrigger = Math.max(0, -headerBottom);
+      const progress = clamp(pastTrigger / REVEAL_RANGE, 0, 1);
 
-      // Reveal top -> bottom
-      const hiddenTopPercent = (1 - progress) * 100;
-      lines.style.clipPath = `inset(${hiddenTopPercent}% 0 0 0)`;
+      // Reveal lines top -> bottom
+      const hiddenTop = (1 - progress) * 100;
+      lines.style.clipPath = `inset(${hiddenTop}% 0 0 0)`;
 
-      requestAnimationFrame(tick);
+      requestAnimationFrame(animate);
     }
 
-    requestAnimationFrame(tick);
+    requestAnimationFrame(animate);
   </script>
 </body>
 </html>
