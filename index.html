@@ -50,8 +50,8 @@
       // Top-to-bottom wipe reveal:
       // progress 0 => inset(100% 0 0 0) hidden
       // progress 1 => inset(0% 0 0 0) fully visible
-      const hiddenTop = (1 - progress) * 100;
-      bleedLayer.style.clipPath = `inset(${hiddenTop}% 0 0 0)`;
+      const hiddenBottom = (1 - progress) * 100;
+      bleedLayer.style.clipPath = `inset(0 0 ${hiddenBottom}% 0)`;
 
       requestAnimationFrame(update);
     }
