@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wade Myers</title>
 </head>
-<body style="margin:0;background:#000;min-height:320vh;">
+<body style="margin:0;background:#000;min-height:320vh;overflow-x:hidden;">
 
   <!-- Base image (always visible, fixed/static) -->
   <div style="
@@ -15,27 +15,31 @@
     z-index:0;
   "></div>
 
-  <!-- Bleed image overlay (revealed by wipe) -->
-  <div id="bleedWrap" style="
+  <!-- Bleed image (revealed through moving mask) -->
+  <div id="bleedLayer" style="
     position:fixed;
     inset:0;
     z-index:1;
-    overflow:hidden;
     pointer-events:none;
-  ">
-    <div id="bleedLayer" style="
-      position:absolute;
-      inset:0;
-      background:url('./bleed.png') center top / cover no-repeat;
-      clip-path: inset(100% 0 0 0); /* fully hidden at load */
-      will-change: clip-path;
-    "></div>
-  </div>
+    background:url('./bleed.png') center top / cover no-repeat;
+
+    /* Mask setup */
+    -webkit-mask-image: url('./wipe-mask.png');
+    mask-image: url('./wipe-mask.png');
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: 100% auto;
+    mask-size: 100% auto;
+
+    /* Start with mask mostly above viewport so bleed is hidden */
+    -webkit-mask-position: center -140vh;
+    mask-position: center -140vh;
+  "></div>
 
   <script>
-    // Tune these if needed
-    const HEADER_HEIGHT = 230; // wipe starts after this scroll amount
-    const WIPE_RANGE = 1400;   // scroll distance from hidden -> fully shown
+    // Tune these
+    const HEADER_HEIGHT = 230; // start when header is gone
+    const WIPE_RANGE = 1400;   // scroll distance to complete reveal
 
     const bleedLayer = document.getElementById('bleedLayer');
     const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -43,15 +47,19 @@
     function update() {
       const y = window.scrollY || window.pageYOffset || 0;
 
-      // Start only after header is no longer fully visible
+      // Trigger only after user scrolls past header
       const pastTrigger = Math.max(0, y - HEADER_HEIGHT);
       const progress = clamp(pastTrigger / WIPE_RANGE, 0, 1);
 
-      // Top-to-bottom wipe reveal:
-      // progress 0 => inset(100% 0 0 0) hidden
-      // progress 1 => inset(0% 0 0 0) fully visible
-      const hiddenBottom = (1 - progress) * 100;
-      bleedLayer.style.clipPath = `inset(0 0 ${hiddenBottom}% 0)`;
+      // Move mask downward through viewport for organic reveal
+      // from -140vh (hidden) to 20vh (revealed)
+      const start = -140;
+      const end = 20;
+      const posY = start + (end - start) * progress;
+      const pos = `center ${posY}vh`;
+
+      bleedLayer.style.webkitMaskPosition = pos;
+      bleedLayer.style.maskPosition = pos;
 
       requestAnimationFrame(update);
     }
