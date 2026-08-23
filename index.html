@@ -5,97 +5,48 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wade Myers</title>
 </head>
-<body style="margin:0;background:#000;color:#fff;font-family:Arial,sans-serif;">
+<body style="margin:0;background:#000;min-height:300vh;">
 
-  <!-- Static background image -->
-  <div style="
+  <!-- Base image (fixed/static) -->
+  <div id="baseLayer" style="
     position:fixed;
     inset:0;
-    background:url('./bg-desktop.png') center top / cover no-repeat;
+    background:url('./base.png') center top / cover no-repeat;
     z-index:0;
   "></div>
 
-  <!-- Header (white banner + logo) -->
-  <header id="heroHeader" style="
-    position:relative;
-    height:230px;
-    z-index:50;
-  ">
-    <div style="
-      position:absolute;
-      inset:0;
-      background:#fff url('./header.png') center top / cover no-repeat;
-      z-index:50;
-    "></div>
-
-    <img src="./header-logo.png" alt="Wade Myers" style="
-      position:absolute;
-      left:50%;
-      top:52%;
-      transform:translate(-50%,-50%);
-      width:min(42vw,520px);
-      height:auto;
-      z-index:51;
-    " />
-  </header>
-
-  <!-- Bleeding lines overlay (revealed on scroll) -->
-  <div style="
+  <!-- Bleed image overlay (fixed/static, revealed by scroll) -->
+  <div id="bleedLayer" style="
     position:fixed;
-    left:50%;
-    top:13.5%;
-    transform:translateX(-50%);
-    width:min(22vw,360px);
-    height:80vh;
-    overflow:hidden;
-    z-index:10;
+    inset:0;
+    background:url('./bleed.png') center top / cover no-repeat;
+    z-index:1;
+    opacity:0;
     pointer-events:none;
-  ">
-    <img id="lines" src="./lines-animation.png" alt="" style="
-      width:100%;
-      height:100%;
-      object-fit:contain;
-      object-position:top center;
-      clip-path:inset(100% 0 0 0);
-      opacity:.96;
-      display:block;
-    " />
-  </div>
-
-  <!-- Page content -->
-  <main style="position:relative;z-index:20;">
-    <section style="min-height:100vh;display:grid;place-items:center;padding:24px;">
-      <div style="border:1px solid rgba(255,255,255,.45);background:rgba(0,0,0,.45);padding:12px 18px;letter-spacing:.08em;text-transform:uppercase;">Listen</div>
-    </section>
-    <section style="min-height:100vh;display:grid;place-items:center;padding:24px;">
-      <div style="border:1px solid rgba(255,255,255,.45);background:rgba(0,0,0,.45);padding:12px 18px;letter-spacing:.08em;text-transform:uppercase;">Watch</div>
-    </section>
-    <section style="min-height:100vh;display:grid;place-items:center;padding:24px;">
-      <div style="border:1px solid rgba(255,255,255,.45);background:rgba(0,0,0,.45);padding:12px 18px;letter-spacing:.08em;text-transform:uppercase;">Store</div>
-    </section>
-    <section style="min-height:100vh;display:grid;place-items:center;padding:24px;">
-      <div style="border:1px solid rgba(255,255,255,.45);background:rgba(0,0,0,.45);padding:12px 18px;letter-spacing:.08em;text-transform:uppercase;">About</div>
-    </section>
-    <section style="min-height:100vh;display:grid;place-items:center;padding:24px;">
-      <div style="border:1px solid rgba(255,255,255,.45);background:rgba(0,0,0,.45);padding:12px 18px;letter-spacing:.08em;text-transform:uppercase;">Contact</div>
-    </section>
-  </main>
+  "></div>
 
   <script>
-    const header = document.getElementById('heroHeader');
-    const lines = document.getElementById('lines');
-    const REVEAL_RANGE = 1500;
+    // Adjust these two numbers only if needed
+    const HEADER_HEIGHT = 230; // trigger starts after this much scroll
+    const REVEAL_RANGE = 1200; // distance to go from 0 -> 100% reveal
 
+    const bleedLayer = document.getElementById('bleedLayer');
     const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-    function animate() {
-      const headerBottom = header.getBoundingClientRect().bottom;
+    function tick() {
+      const y = window.scrollY || window.pageYOffset || 0;
 
-      // Start only after header is fully out of viewport
-      const pastTrigger = Math.max(0, -headerBottom);
+      // start once header is no longer fully visible
+      const pastTrigger = Math.max(0, y - HEADER_HEIGHT);
       const progress = clamp(pastTrigger / REVEAL_RANGE, 0, 1);
 
-      // Reveal from top to bottom
-      const hiddenTop = (1 - progress) * 100;
-      lines.style.clipPath = `inset(${hiddenTop}% 0`*
-
+      // fade in bleed image as user scrolls down; reverses on scroll up
+      bleedLayer.style.opacity = progress.toFixed(4);
+
+      requestAnimationFrame(tick);
+    }
+
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>
