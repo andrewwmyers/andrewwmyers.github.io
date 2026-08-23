@@ -5,48 +5,58 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wade Myers</title>
 </head>
-<body style="margin:0;background:#000;min-height:300vh;">
+<body style="margin:0;background:#000;min-height:320vh;">
 
-  <!-- Base image (fixed/static) -->
-  <div id="baseLayer" style="
+  <!-- Base image (always visible, fixed/static) -->
+  <div style="
     position:fixed;
     inset:0;
     background:url('./base.png') center top / cover no-repeat;
     z-index:0;
   "></div>
 
-  <!-- Bleed image overlay (fixed/static, revealed by scroll) -->
-  <div id="bleedLayer" style="
+  <!-- Bleed image overlay (revealed by wipe) -->
+  <div id="bleedWrap" style="
     position:fixed;
     inset:0;
-    background:url('./bleed.png') center top / cover no-repeat;
     z-index:1;
-    opacity:0;
+    overflow:hidden;
     pointer-events:none;
-  "></div>
+  ">
+    <div id="bleedLayer" style="
+      position:absolute;
+      inset:0;
+      background:url('./bleed.png') center top / cover no-repeat;
+      clip-path: inset(100% 0 0 0); /* fully hidden at load */
+      will-change: clip-path;
+    "></div>
+  </div>
 
   <script>
-    // Adjust these two numbers only if needed
-    const HEADER_HEIGHT = 230; // trigger starts after this much scroll
-    const REVEAL_RANGE = 1200; // distance to go from 0 -> 100% reveal
+    // Tune these if needed
+    const HEADER_HEIGHT = 230; // wipe starts after this scroll amount
+    const WIPE_RANGE = 1400;   // scroll distance from hidden -> fully shown
 
     const bleedLayer = document.getElementById('bleedLayer');
     const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-    function tick() {
+    function update() {
       const y = window.scrollY || window.pageYOffset || 0;
 
-      // start once header is no longer fully visible
+      // Start only after header is no longer fully visible
       const pastTrigger = Math.max(0, y - HEADER_HEIGHT);
-      const progress = clamp(pastTrigger / REVEAL_RANGE, 0, 1);
+      const progress = clamp(pastTrigger / WIPE_RANGE, 0, 1);
 
-      // fade in bleed image as user scrolls down; reverses on scroll up
-      bleedLayer.style.opacity = progress.toFixed(4);
+      // Top-to-bottom wipe reveal:
+      // progress 0 => inset(100% 0 0 0) hidden
+      // progress 1 => inset(0% 0 0 0) fully visible
+      const hiddenTop = (1 - progress) * 100;
+      bleedLayer.style.clipPath = `inset(${hiddenTop}% 0 0 0)`;
 
-      requestAnimationFrame(tick);
+      requestAnimationFrame(update);
     }
 
-    requestAnimationFrame(tick);
+    requestAnimationFrame(update);
   </script>
 </body>
 </html>
