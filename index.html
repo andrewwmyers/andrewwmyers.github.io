@@ -5,17 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wade Myers</title>
 </head>
-<body style="margin:0;background:#000;min-height:380vh;overflow-x:hidden;">
+<body style="margin:0;background:#000;overflow-x:hidden;">
 
-  <!-- Base image -->
+  <!-- Scroll spacer: gives real page scroll distance -->
+  <div style="height:320vh;"></div>
+
+  <!-- Base image stays static -->
   <div style="
     position:fixed;
     inset:0;
     background:url('./base.png') center top / cover no-repeat;
     z-index:0;
+    pointer-events:none;
   "></div>
 
-  <!-- Bleed image -->
+  <!-- Bleed layer -->
   <div id="bleedLayer" style="
     position:fixed;
     inset:0;
@@ -36,10 +40,18 @@
   </svg>
 
   <script>
-    const HEADER_HEIGHT = 230;
+    // Scroll behavior:
+    // 1) User scrolls until white header area is gone
+    // 2) Base remains static
+    // 3) Bleed animation starts
+
+    // Tune this to your image's white header height
+    const HEADER_HEIGHT_PX = 230;
+
+    // How much scroll distance for full bleed reveal after trigger
     const WIPE_RANGE = 1800;
 
-    // Keep your requested update:
+    // Keep your requested alignment
     const LEFT_INNER_X  = 0.495;
     const RIGHT_INNER_X = 0.53;
 
@@ -48,17 +60,16 @@
 
     const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
     const lerp = (a,b,t) => a + (b-a)*t;
-    const q = (v, step=0.0012) => Math.round(v / step) * step; // quantize to reduce shimmer
+    const q = (v, step=0.0012) => Math.round(v / step) * step;
 
     let smoothP = 0;
 
     const L_COUNT = 10;
     const R_COUNT = 10;
 
-    const leftPulse  = Array.from({length:L_COUNT}, (_,i)=>({amp:0, seed:i*1.37+0.3}));
-    const rightPulse = Array.from({length:R_COUNT}, (_,i)=>({amp:0, seed:i*1.91+0.8}));
+    const leftPulse  = Array.from({length:L_COUNT}, (_,i)=>({amp:0}));
+    const rightPulse = Array.from({length:R_COUNT}, (_,i)=>({amp:0}));
 
-    // Persistent lane smoothing buffers (big anti-flicker fix)
     const leftLaneY  = Array.from({length:L_COUNT+1}, () => 0);
     const rightLaneY = Array.from({length:R_COUNT+1}, () => 0);
 
@@ -68,7 +79,6 @@
         if (Math.random() < burstChance * dtFrames) {
           a.amp = Math.max(a.amp, 0.06 + Math.random() * 0.16);
         }
-        // gentler decay = less snapping
         a.amp *= Math.pow(0.992, dtFrames);
       }
     }
@@ -77,7 +87,6 @@
       const xEnd = clamp(xStart + dir * width, 0, 1);
       const pts = [];
 
-      // lower frequency wobble to avoid bottom-tip glitching
       const t1 = t * 0.0014;
       const t2 = t * 0.0022;
 
@@ -96,17 +105,13 @@
 
         let targetY = clamp(baseDepth + wobble + pulse, 0, 1);
 
-        // smooth each lane independently (strong anti-jitter)
         const laneFollow = 1 - Math.exp(-dt * 18);
         laneBuffer[i] += (targetY - laneBuffer[i]) * laneFollow;
 
-        // quantize after smoothing to avoid subpixel shimmer
         const yy = q(laneBuffer[i], 0.0012);
-
         pts.push({x, y:yy});
       }
 
-      // very subtle sway only
       const sway = Math.sin(t * 0.0008) * 0.0035;
       for (const p of pts) p.x = clamp(q(p.x + sway * dir, 0.0009), 0, 1);
 
@@ -129,13 +134,16 @@
       const dt = Math.min(0.05, (ts - lastTs) / 1000);
       lastTs = ts;
 
-      const s = window.scrollY || window.pageYOffset || 0;
-      const rawPast = Math.max(0, s - HEADER_HEIGHT);
-      const rawP = clamp(rawPast / WIPE_RANGE, 0, 1);
+      const scrollY = window.scrollY || window.pageYOffset || 0;
+
+      // Animation starts only AFTER white header scrolls away
+      const pastTrigger = Math.max(0, scrollY - HEADER_HEIGHT_PX);
+      const rawP = clamp(pastTrigger / WIPE_RANGE, 0, 1);
 
       const follow = 1 - Math.exp(-dt * 7.0);
       smoothP += (rawP - smoothP) * follow;
 
+      // drip edge travels from above viewport to below
       const y = -0.30 + (1.42 * smoothP);
 
       const maxLeftWidth  = 0.24;
@@ -149,12 +157,10 @@
       updatePulses(rightPulse, smoothP, dtFrames);
 
       const leftD = buildEyePath(
-        LEFT_INNER_X, -1, y, leftWidth, ts,
-        leftPulse, L_COUNT, leftLaneY, dt
+        LEFT_INNER_X, -1, y, leftWidth, ts, leftPulse, L_COUNT, leftLaneY, dt
       );
       const rightD = buildEyePath(
-        RIGHT_INNER_X, +1, y, rightWidth, ts,
-        rightPulse, R_COUNT, rightLaneY, dt
+        RIGHT_INNER_X, +1, y, rightWidth, ts, rightPulse, R_COUNT, rightLaneY, dt
       );
 
       leftPath.setAttribute('d', leftD);
