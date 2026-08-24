@@ -20,12 +20,12 @@
       user-select:none; -webkit-user-drag:none;
     }
 
-    /* Permanently centered shell */
+    /* Always centered horizontally via CSS */
     #headShell{
       position:absolute;
       left:50%;
       top:0;
-      width:1000px;   /* art units */
+      width:1000px;   /* logical art units */
       height:1000px;
       transform:translateX(-50%);
       transform-origin:top center;
@@ -35,7 +35,8 @@
 
     #headSvg{
       width:100%; height:100%;
-      display:block; overflow:visible;
+      display:block;
+      overflow:visible;
     }
   </style>
 </head>
@@ -53,17 +54,23 @@
            xmlns:xlink="http://www.w3.org/1999/xlink"
            aria-hidden="true">
         <defs>
+          <!-- userSpaceOnUse for robust animated masking -->
           <clipPath id="dripClip" clipPathUnits="userSpaceOnUse">
             <path id="leftClip" d=""></path>
             <path id="rightClip" d=""></path>
           </clipPath>
         </defs>
 
+        <!-- Keep base + bleed in same moving group -->
         <g id="headScroll" transform="translate(0,0)">
-          <image href="./head-base.png" xlink:href="./head-base.png"
+          <image id="headBase"
+                 href="./head-base.png"
+                 xlink:href="./head-base.png"
                  x="0" y="0" width="1000" height="1000"></image>
 
-          <image href="./head-bleed.png" xlink:href="./head-bleed.png"
+          <image id="headBleed"
+                 href="./head-bleed.png"
+                 xlink:href="./head-bleed.png"
                  x="0" y="0" width="1000" height="1000"
                  clip-path="url(#dripClip)"></image>
         </g>
@@ -72,17 +79,23 @@
   </div>
 
   <script>
-    // ===== Desired behavior =====
+    // ----------------------------
+    // Controls
+    // ----------------------------
     const WHITE_HEADER_FRAC = 0.14;
-    const HEAD_WIDTH_FRAC   = 0.92; // bigger
-    const HEAD_MIN_PX       = 700;
-    const HEAD_MAX_PX       = 1500;
 
+    // Bigger head
+    const HEAD_WIDTH_FRAC = 0.92;
+    const HEAD_MIN_PX = 700;
+    const HEAD_MAX_PX = 1500;
+
+    // Bleed timing
     const BLEED_START_DELAY_VH = 0.00;
-    const WIPE_RANGE_VH        = 1.35;
+    const WIPE_RANGE_VH = 1.35;
 
+    // Bleed geometry
     const BLEED_START_Y = 0.18;
-    const BLEED_TRAVEL  = 0.99;
+    const BLEED_TRAVEL  = 0.99;  // reaches near bottom
     const LEFT_INNER_X  = 0.495;
     const RIGHT_INNER_X = 0.53;
     const MAX_LEFT_WIDTH  = 0.30;
@@ -103,25 +116,48 @@
     const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
     const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
 
-    // ===== CRITICAL: freeze anchor + scale ONCE =====
-    const initialVW = document.documentElement.clientWidth || window.innerWidth || 1;
-    const initialVH = document.documentElement.clientHeight || window.innerHeight || 1;
+    // Frozen layout values (updated only on REAL window resize)
+    let frozenHeaderBottomPx = 0;
+    let frozenHeadPx = 0;
+    let frozenScale = 1;
+    let baselineOuterW = window.outerWidth;
+    let baselineOuterH = window.outerHeight;
 
-    const frozenHeaderBottomPx = WHITE_HEADER_FRAC * initialVH;
-    const frozenHeadPx = clamp(initialVW * HEAD_WIDTH_FRAC, HEAD_MIN_PX, HEAD_MAX_PX);
-    const frozenScale = frozenHeadPx / 1000;
+    function computeFrozenLayout() {
+      const w = document.documentElement.clientWidth || window.innerWidth || 1;
+      const h = document.documentElement.clientHeight || window.innerHeight || 1;
 
-    // Apply once, never change on zoom/resize
-    headShell.style.transform =
-      `translateX(-50%) translateY(${frozenHeaderBottomPx}px) scale(${frozenScale})`;
+      frozenHeaderBottomPx = WHITE_HEADER_FRAC * h;
+      frozenHeadPx = clamp(w * HEAD_WIDTH_FRAC, HEAD_MIN_PX, HEAD_MAX_PX);
+      frozenScale = frozenHeadPx / 1000;
+
+      // centered always; pinned under header always
+      headShell.style.transform =
+        `translateX(-50%) translateY(${frozenHeaderBottomPx}px) scale(${frozenScale})`;
+    }
+
+    function isRealWindowResize() {
+      // Ctrl+wheel zoom usually changes inner/client sizes but NOT outer window size.
+      // Real resize changes outer size.
+      const ow = window.outerWidth;
+      const oh = window.outerHeight;
+      const changed = (ow !== baselineOuterW) || (oh !== baselineOuterH);
+      baselineOuterW = ow;
+      baselineOuterH = oh;
+      return changed;
+    }
 
     function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
       const xEnd = clamp(xStart + dir * width, 0, 1);
-      const t1 = t * 0.0013, t2 = t * 0.0020;
+      const t1 = t * 0.0013;
+      const t2 = t * 0.0020;
       let d = "";
 
       for(let i=0;i<=laneCount;i++){
-        const u = i/laneCount, w = 1-u, x = lerp(xStart,xEnd,u);
+        const u = i / laneCount;
+        const w = 1 - u;
+        const x = lerp(xStart, xEnd, u);
+
         const baseDepth = y + w*0.28 + (1-w)*0.10;
         const wobble =
           Math.sin(t1 + i*1.05) * (0.006 + w*0.007) +
@@ -131,10 +167,11 @@
         const follow = 1 - Math.exp(-dt * 18);
         laneBuf[i] += (targetY - laneBuf[i]) * follow;
 
-        const yy = clamp(laneBuf[i],0,1);
-        const xl = clamp(x-DRIP_HALF_WIDTH,0,1) * 1000;
-        const xr = clamp(x+DRIP_HALF_WIDTH,0,1) * 1000;
+        const yy = clamp(laneBuf[i], 0, 1);
+        const xl = clamp(x - DRIP_HALF_WIDTH, 0, 1) * 1000;
+        const xr = clamp(x + DRIP_HALF_WIDTH, 0, 1) * 1000;
         const yb = yy * 1000;
+
         d += `M ${xl} 0 L ${xr} 0 L ${xr} ${yb} L ${xl} ${yb} Z `;
       }
       return d;
@@ -146,23 +183,23 @@
       lastTs = now;
 
       const scrollY = window.scrollY || window.pageYOffset || 0;
-      const vh = window.innerHeight || initialVH;
+      const vh = window.innerHeight || document.documentElement.clientHeight || 1;
 
-      // scroll-up until header disappears (using frozen lock distance)
+      // Pre-lock movement: scroll bg + head until white header gone
       const lockPx = frozenHeaderBottomPx;
       const offsetPx = -Math.min(scrollY, lockPx);
 
       bgLayer.style.transform = `translate3d(0, ${offsetPx}px, 0)`;
 
-      // Convert px motion into local art units using FROZEN scale
+      // move in local art units so uniform scale is preserved
       headScroll.setAttribute('transform', `translate(0 ${offsetPx / frozenScale})`);
 
-      // Bleed phase
+      // Bleed starts after lock
       const past = Math.max(0, scrollY - lockPx - (BLEED_START_DELAY_VH * vh));
       const rawP = clamp(past / (WIPE_RANGE_VH * vh), 0, 1);
 
-      const follow = 1 - Math.exp(-dt * 7.0);
-      smoothP += (rawP - smoothP) * follow;
+      const pFollow = 1 - Math.exp(-dt * 7);
+      smoothP += (rawP - smoothP) * pFollow;
 
       const y = BLEED_START_Y + BLEED_TRAVEL * smoothP;
       const open = Math.pow(smoothP, 0.85);
@@ -171,5 +208,31 @@
         LEFT_INNER_X, -1, y, MAX_LEFT_WIDTH * open, now, L_COUNT, dt, leftLaneY
       ));
       rightClip.setAttribute('d', buildDripRects(
-        RIGHT_INNER_X, +1, y, MAX_RIGHT_WIDTH * open, now, R_COUNT, dt*
-
+        RIGHT_INNER_X, +1, y, MAX_RIGHT_WIDTH * open, now, R_COUNT, dt, rightLaneY
+      ));
+    }
+
+    function tick(ts){
+      render(ts);
+      requestAnimationFrame(tick);
+    }
+
+    // Init
+    computeFrozenLayout();
+    render(performance.now());
+    requestAnimationFrame(tick);
+
+    window.addEventListener('scroll', () => render(performance.now()), { passive:true });
+
+    // Recompute ONLY for real window resize (not ctrl+wheel zoom)
+    window.addEventListener('resize', () => {
+      if (isRealWindowResize()) {
+        computeFrozenLayout();
+      }
+      render(performance.now());
+    });
+
+    // Ignore visualViewport resize/scroll (zoom noise)
+  </script>
+</body>
+</html>
