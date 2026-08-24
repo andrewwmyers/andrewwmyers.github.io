@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wade Myers – Floating Head</title>
   <style>
-    html, body { margin:0; background:#000; overflow-x:hidden; }
+    html, body { margin: 0; background: #000; overflow-x: hidden; }
 
-    /* Total scroll duration */
-    .scroll-runway { height: 520vh; position: relative; }
+    /* Scroll distance for full effect */
+    .scroll-runway { height: 520vh; }
 
     /* Pinned stage */
-    #stage{
+    #stage {
       position: fixed;
       inset: 0;
       z-index: 2;
@@ -20,31 +20,29 @@
       background: #000;
     }
 
-    /*
-      Background: always fill viewport, no black side/bottom borders.
-      (May crop some bg content, which is usually acceptable for background layer.)
-    */
-    #bgLayer{
-      position:absolute; inset:0;
-      width:100%; height:100%;
-      object-fit:cover;
-      object-position:center top;
-      will-change:transform;
-      z-index:1;
-      user-select:none; -webkit-user-drag:none;
+    /* Full-bleed background (no black borders) */
+    #bgLayer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+      z-index: 1;
+      will-change: transform;
+      user-select: none;
+      -webkit-user-drag: none;
     }
 
-    /*
-      Head system: no vertical crop (meet) so bleed can fully travel.
-      This may leave transparent side gutters in the head layer itself,
-      but bg behind it is fully filled, so no black borders.
-    */
-    #headSvg{
-      position:absolute; inset:0;
-      width:100%; height:100%;
-      z-index:2;
-      overflow:visible;
-      will-change:transform;
+    /* Head system */
+    #headSvg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      overflow: visible;
+      will-change: transform;
     }
   </style>
 </head>
@@ -60,8 +58,10 @@
          aria-hidden="true"
          xmlns="http://www.w3.org/2000/svg"
          xmlns:xlink="http://www.w3.org/1999/xlink">
+
       <defs>
-        <clipPath id="dripClip" clipPathUnits="userSpaceOnUse">
+        <!-- IMPORTANT: use objectBoundingBox so both head images can share this cleanly -->
+        <clipPath id="dripClip" clipPathUnits="objectBoundingBox">
           <path id="leftClip" d=""></path>
           <path id="rightClip" d=""></path>
         </clipPath>
@@ -87,14 +87,22 @@
   </div>
 
   <script>
-    // ===== Tunables =====
-    const WHITE_HEADER_FRAC = 0.14;
+    // =========================
+    // Tunables
+    // =========================
+
+    // Fraction of viewport used by your white header.
+    // Head top is aligned exactly under this.
+    const WHITE_HEADER_FRAC = 0.14;  // tweak if needed (e.g. 0.13 / 0.15)
+
     const BLEED_START_DELAY_VH = 0.00;
-    const WIPE_RANGE_VH = 1.10; // keep enough runway for full bleed
+    const WIPE_RANGE_VH = 1.15;      // length of bleed reveal
 
-    const BLEED_START_Y = 0.18;
-    const BLEED_TRAVEL  = 0.98;
+    // Drip progression in normalized 0..1 image space
+    const BLEED_START_Y = 0.20;
+    const BLEED_TRAVEL  = 0.92;
 
+    // Eye centers (normalized 0..1 across image width)
     const LEFT_INNER_X  = 0.495;
     const RIGHT_INNER_X = 0.53;
 
@@ -104,57 +112,72 @@
 
     const L_COUNT = 14, R_COUNT = 14;
 
-    // ===== Elements =====
+    // =========================
+    // Elements
+    // =========================
     const bgLayer   = document.getElementById('bgLayer');
     const headGroup = document.getElementById('headGroup');
     const leftClip  = document.getElementById('leftClip');
     const rightClip = document.getElementById('rightClip');
 
-    const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
-    const lerp  = (a,b,t)=>a+(b-a)*t;
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+    const lerp  = (a, b, t) => a + (b - a) * t;
 
-    let smoothP = 0, lastTs = 0;
-    const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
-    const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
+    let smoothP = 0;
+    let lastTs = 0;
 
-    /*
-      Head layer uses "meet" (fit by full visibility).
-      For square 1000x1000 in viewport:
-      renderedHeight = min(vw, vh)
-    */
-    function getHeadRenderedHeightPx() {
+    const leftLaneY  = Array.from({ length: L_COUNT + 1 }, () => 0);
+    const rightLaneY = Array.from({ length: R_COUNT + 1 }, () => 0);
+
+    // Head uses preserveAspectRatio="meet" inside viewport
+    // For 1000x1000 square: rendered size is min(vw, vh)
+    function getHeadRenderedSizePx() {
       const vw = window.innerWidth || 1;
       const vh = window.innerHeight || 1;
-      return Math.min(vw, vh);
+      const s = Math.min(vw, vh);
+      return { w: s, h: s };
     }
 
-    function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
+    function buildDripRectsOBB(xStart, dir, y, width, t, laneCount, dt, laneBuf) {
+      // objectBoundingBox path coordinates are 0..1
       const xEnd = clamp(xStart + dir * width, 0, 1);
-      const t1 = t * 0.0013, t2 = t * 0.0020;
+      const t1 = t * 0.0013;
+      const t2 = t * 0.0020;
       let d = "";
 
-      for(let i=0;i<=laneCount;i++){
-        const u = i/laneCount, w = 1-u, x = lerp(xStart,xEnd,u);
-        const baseDepth = y + w*0.28 + (1-w)*0.10;
+      for (let i = 0; i <= laneCount; i++) {
+        const u = i / laneCount;
+        const w = 1 - u;
+        const x = lerp(xStart, xEnd, u);
+
+        const baseDepth = y + w * 0.28 + (1 - w) * 0.10;
         const wobble =
-          Math.sin(t1 + i*1.05) * (0.006 + w*0.007) +
-          Math.sin(t2 + i*1.81) * 0.004;
+          Math.sin(t1 + i * 1.05) * (0.006 + w * 0.007) +
+          Math.sin(t2 + i * 1.81) * 0.004;
 
         const targetY = clamp(baseDepth + wobble, 0, 1);
         const follow = 1 - Math.exp(-dt * 18);
         laneBuf[i] += (targetY - laneBuf[i]) * follow;
 
-        const yy = clamp(laneBuf[i],0,1);
-        const xl = clamp(x-DRIP_HALF_WIDTH,0,1) * 1000;
-        const xr = clamp(x+DRIP_HALF_WIDTH,0,1) * 1000;
-        const yb = yy * 1000;
+        const yy = clamp(laneBuf[i], 0, 1);
+        const xl = clamp(x - DRIP_HALF_WIDTH, 0, 1);
+        const xr = clamp(x + DRIP_HALF_WIDTH, 0, 1);
 
-        d += `M ${xl} 0 L ${xr} 0 L ${xr} ${yb} L ${xl} ${yb} Z `;
+        d += `M ${xl} 0 L ${xr} 0 L ${xr} ${yy} L ${xl} ${yy} Z `;
       }
+
       return d;
     }
 
-    function render(ts){
+    function render(ts) {
       const now = ts || performance.now();
-      const dt = lastTs ? Math.min(0.05,(now-lastTs)/1000) :`*
+      const dt = lastTs ? Math.min(0.05, (now - lastTs) / 1000) : (1 / 60);
+      lastTs = now;
+
+      const scrollY = window.scrollY || window.pageYOffset || 0;
+      const vh = window.innerHeight || 1;
+
+      // Dynamic "top of head aligns under white header"
+      // Since the head asset top starts at viewport top, move it down by header height at rest,
+      // then scroll it up until that offset is consumed, then lock.`*
 
