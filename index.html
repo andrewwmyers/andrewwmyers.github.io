@@ -4,12 +4,19 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wade Myers</title>
+  <style>
+    html, body { margin:0; background:#000; overflow-x:hidden; }
+  </style>
 </head>
-<body style="margin:0;background:#000;overflow-x:hidden;">
+<body>
+  <!-- Scroll runway -->
   <div style="height:340vh;"></div>
 
-  <svg id="scene" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMin slice"
-       style="position:fixed;inset:0;width:100%;height:100%;display:block;pointer-events:none;z-index:1;">
+  <!-- Unified scene: base + bleed in same SVG (always locked together) -->
+  <svg id="scene"
+       viewBox="0 0 1000 1000"
+       preserveAspectRatio="xMidYMin slice"
+       style="position:fixed; inset:0; width:100%; height:100%; display:block; pointer-events:none; z-index:1;">
     <defs>
       <clipPath id="dripClip" clipPathUnits="userSpaceOnUse">
         <path id="leftClip" d=""></path>
@@ -17,37 +24,43 @@
       </clipPath>
     </defs>
 
-    <!-- Put both images in one group so they always move together -->
     <g id="imgGroup" transform="translate(0,0)">
       <image id="baseImg"
-        href="./base.png"
-        x="0" y="0" width="1000" height="1000"
-        preserveAspectRatio="xMidYMin slice"></image>
+             href="./base.png"
+             x="0" y="0" width="1000" height="1000"
+             preserveAspectRatio="xMidYMin slice"></image>
 
       <image id="bleedImg"
-        href="./bleed.png"
-        x="0" y="0" width="1000" height="1000"
-        preserveAspectRatio="xMidYMin slice"
-        clip-path="url(#dripClip)"></image>
+             href="./bleed.png"
+             x="0" y="0" width="1000" height="1000"
+             preserveAspectRatio="xMidYMin slice"
+             clip-path="url(#dripClip)"></image>
     </g>
   </svg>
 
   <script>
-    // ---------- Tuning ----------
-    const HEADER_SCROLL_VH = 0.78;
-    const BLEED_START_DELAY_VH = 0.00;
-    const WIPE_RANGE = 1800;
+    // --------------------------
+    // REQUIRED: set this once
+    // --------------------------
+    // Fraction of image height that is white header in your source files.
+    // Example: if header is 700px in a 4000px image, use 700/4000 = 0.175
+    const WHITE_HEADER_FRAC = 0.175;
 
+    // Bleed timing
+    const BLEED_START_DELAY_VH = 0.00; // delay after lock (0 = immediate)
+    const WIPE_RANGE_VH = 2.2;         // reveal distance as viewport heights
+
+    // Bleed shape tuning
     const BLEED_START_Y = 0.20;
     const BLEED_TRAVEL  = 0.94;
-
     const LEFT_INNER_X  = 0.495;
     const RIGHT_INNER_X = 0.53;
     const MAX_LEFT_WIDTH  = 0.24;
     const MAX_RIGHT_WIDTH = 0.24;
     const DRIP_HALF_WIDTH = 0.010;
-    // ---------------------------
 
+    // --------------------------
+    const scene = document.getElementById('scene');
     const imgGroup = document.getElementById('imgGroup');
     const leftClip = document.getElementById('leftClip');
     const rightClip = document.getElementById('rightClip');
@@ -59,6 +72,17 @@
     const L_COUNT = 12, R_COUNT = 12;
     const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
     const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
+
+    // Compute rendered image height in screen px for xMidYMin slice
+    function getRenderedImageHeightPx() {
+      const vw = window.innerWidth || 1;
+      const vh = window.innerHeight || 1;
+
+      // viewBox is 1000x1000 => aspect 1:1
+      // for "slice", scale = max(vw/1000, vh/1000)
+      const scale = Math.max(vw / 1000, vh / 1000);
+      return 1000 * scale; // rendered image height in CSS pixels
+    }
 
     function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
       const xEnd = clamp(xStart + dir * width, 0, 1);
@@ -98,19 +122,22 @@
       const scrollY = window.scrollY || window.pageYOffset || 0;
       const vh = window.innerHeight || 1;
 
-      const headerScrollPx = HEADER_SCROLL_VH * vh;
-      const bleedDelayPx = BLEED_START_DELAY_VH * vh;
+      // LOCK DISTANCE computed from actual rendered image size:
+      // when we've translated up exactly the visible white-header pixel height.
+      const renderedImgH = getRenderedImageHeightPx();
+      const lockPx = renderedImgH * WHITE_HEADER_FRAC;
 
-      // Move images upward until lock (starts from true top, no black gap)
-      const headerProgress = clamp(scrollY / headerScrollPx, 0, 1);
-      const bgOffsetPx = -headerScrollPx * headerProgress;
-      const vbOffset = (bgOffsetPx / vh) * 1000;
-
+      // Phase 1: move image up until lockPx, then freeze
+      const bgOffsetPx = -Math.min(scrollY, lockPx);
+      const vbOffset = (bgOffsetPx / vh) * 1000; // px -> viewBox units
       imgGroup.setAttribute('transform', `translate(0 ${vbOffset})`);
 
-      // Bleed progress
-      const pastTrigger = Math.max(0, scrollY - headerScrollPx - bleedDelayPx);
-      const rawP = clamp(pastTrigger / WIPE_RANGE, 0, 1);
+      // Phase 2: bleed starts after lock (+ optional delay)
+      const bleedDelayPx = BLEED_START_DELAY_VH * vh;
+      const wipeRangePx = WIPE_RANGE_VH * vh;
+
+      const pastTrigger = Math.max(0, scrollY - lockPx - bleedDelayPx);
+      const rawP = clamp(pastTrigger / wipeRangePx, 0, 1);
 
       const pFollow = 1 - Math.exp(-dt * 7.0);
       smoothP += (rawP - smoothP) * pFollow;
