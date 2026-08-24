@@ -8,8 +8,8 @@
 <body style="margin:0;background:#000;overflow-x:hidden;">
 
   <!-- Real scroll space -->
-  <div style="height:360vh; position:relative;">
-    <!-- This one truly scrolls with document -->
+  <div style="height:380vh; position:relative;">
+    <!-- Scroll-phase base image -->
     <div id="scrollingBase" style="
       position:absolute;
       top:0;
@@ -18,17 +18,22 @@
       height:140vh;
       background:url('./base.png') center top / cover no-repeat;
       z-index:1;
+      will-change: transform, opacity;
     "></div>
   </div>
 
-  <!-- Fixed locked base (hidden until trigger) -->
+  <!-- Lock-phase fixed clone (top is set dynamically at lock moment) -->
   <div id="fixedBase" style="
     position:fixed;
-    inset:0;
+    left:0;
+    width:100%;
+    height:140vh;
+    top:0;
     background:url('./base.png') center top / cover no-repeat;
     z-index:5;
     opacity:0;
     pointer-events:none;
+    will-change: top, opacity;
   "></div>
 
   <!-- Bleed layer -->
@@ -52,12 +57,24 @@
   </svg>
 
   <script>
-    const HEADER_HEIGHT_PX = 230;
-    const WIPE_RANGE = 1800;
-
-    const LEFT_INNER_X  = 0.495; // your saved value
+    // ----------------------------
+    // USER TUNING
+    // ----------------------------
+    const LEFT_INNER_X  = 0.495; // requested saved update
     const RIGHT_INNER_X = 0.53;
 
+    // Trigger when eye-line reaches this viewport Y (0..1)
+    // Example: 0.22 means 22% down from top of screen.
+    const EYE_LOCK_VIEWPORT_Y = 0.22;
+
+    // Eye-line location inside the image itself (0..1 from image top).
+    // Tune this once if needed for perfect timing.
+    const EYE_LINE_IN_IMAGE_Y = 0.29;
+
+    // Reveal pacing after lock
+    const WIPE_RANGE = 1800;
+
+    // ----------------------------
     const scrollingBase = document.getElementById('scrollingBase');
     const fixedBase = document.getElementById('fixedBase');
     const leftPath = document.getElementById('leftEyePath');
@@ -68,6 +85,9 @@
     const q = (v, step=0.0012) => Math.round(v / step) * step;
 
     let smoothP = 0;
+    let lockScrollY = null;
+    let lockedTopPx = 0;
+
     const L_COUNT = 10, R_COUNT = 10;
     const leftPulse  = Array.from({length:L_COUNT}, () => ({amp:0}));
     const rightPulse = Array.from({length:R_COUNT}, () => ({amp:0}));
@@ -91,6 +111,7 @@
         const u = i / laneCount;
         const x = lerp(xStart, xEnd, u);
         const innerWeight = 1 - u;
+
         const baseDepth = y + innerWeight * 0.26 + (1-innerWeight) * 0.10;
         const wobble = Math.sin(t1 + i * 1.07) * (0.006 + innerWeight * 0.006) + Math.sin(t2 + i * 1.83) * 0.004;
         const pulse = (pulses[i % pulses.length].amp || 0) * (0.55 + innerWeight * 0.65);
@@ -114,6 +135,15 @@
       return d;
     }
 
+    function getTriggerScrollY() {
+      // scrollingBase top in document = 0, so its visual top = -scrollY
+      // eyeLineScreenY = (-scrollY) + (scrollingBaseHeight * EYE_LINE_IN_IMAGE_Y)
+      // trigger when eyeLineScreenY <= (viewportHeight * EYE_LOCK_VIEWPORT_Y)
+      const baseH = scrollingBase.offsetHeight;
+      const targetY = window.innerHeight * EYE_LOCK_VIEWPORT_Y;
+      return Math.max(0, (baseH * EYE_LINE_IN_IMAGE_Y) - targetY);
+    }
+
     let lastTs = 0;
     function tick(ts) {
       if (!lastTs) lastTs = ts;
@@ -121,17 +151,29 @@
       lastTs = ts;
 
       const scrollY = window.scrollY || window.pageYOffset || 0;
+      const triggerY = getTriggerScrollY();
 
-      // Force phase switch
-      const pastTrigger = Math.max(0, scrollY - HEADER_HEIGHT_PX);
-      const phase2 = pastTrigger > 0;
+      // Enter lock phase exactly at computed trigger
+      if (lockScrollY === null && scrollY >= triggerY) {
+        lockScrollY = triggerY;
 
-      // Before trigger: only scrolling image visible
-      // After trigger: fixed base visible, scrolling one hidden
+        // Capture exact on-screen top of scrolling base at lock moment
+        // scrollingBase visual top is -scrollY
+        lockedTopPx = -lockScrollY;
+
+        // Apply same visual position to fixed clone => no snap
+        fixedBase.style.top = `${lockedTopPx}px`;
+      }
+
+      const phase2 = lockScrollY !== null;
+
       scrollingBase.style.opacity = phase2 ? "0" : "1";
       fixedBase.style.opacity = phase2 ? "1" : "0";
 
+      // Progress begins only after lock point
+      const pastTrigger = phase2 ? Math.max(0, scrollY - lockScrollY) : 0;
       const rawP = clamp(pastTrigger / WIPE_RANGE, 0, 1);
+
       const follow = 1 - Math.exp(-dt * 7.0);
       smoothP += (rawP - smoothP) * follow;
 
