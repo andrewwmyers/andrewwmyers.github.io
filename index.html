@@ -7,10 +7,10 @@
   <style>
     html, body { margin:0; background:#000; overflow-x:hidden; }
 
-    /* Full scroll duration */
+    /* Total scroll duration */
     .scroll-runway { height: 520vh; position: relative; }
 
-    /* Pinned viewport */
+    /* Pinned stage */
     #stage{
       position: fixed;
       inset: 0;
@@ -21,33 +21,30 @@
     }
 
     /*
-      IMPORTANT:
-      We fit by HEIGHT (100vh) so vertical cropping never happens.
-      Width may overflow/crop on sides, which is usually fine for hero art.
+      Background: always fill viewport, no black side/bottom borders.
+      (May crop some bg content, which is usually acceptable for background layer.)
     */
     #bgLayer{
-      position:absolute;
-      top:0;
-      left:50%;
-      height:100%;
-      width:auto;
-      transform: translateX(-50%);
-      transform-origin: center top;
-      will-change: transform;
+      position:absolute; inset:0;
+      width:100%; height:100%;
+      object-fit:cover;
+      object-position:center top;
+      will-change:transform;
       z-index:1;
-      user-select:none;
-      -webkit-user-drag:none;
+      user-select:none; -webkit-user-drag:none;
     }
 
-    /* SVG overlay uses same "fit by height" idea via meet (no vertical crop) */
+    /*
+      Head system: no vertical crop (meet) so bleed can fully travel.
+      This may leave transparent side gutters in the head layer itself,
+      but bg behind it is fully filled, so no black borders.
+    */
     #headSvg{
-      position:absolute;
-      inset:0;
-      width:100%;
-      height:100%;
+      position:absolute; inset:0;
+      width:100%; height:100%;
       z-index:2;
       overflow:visible;
-      will-change: transform;
+      will-change:transform;
     }
   </style>
 </head>
@@ -91,9 +88,9 @@
 
   <script>
     // ===== Tunables =====
-    const WHITE_HEADER_FRAC = 0.14;   // lock when this fraction has scrolled off
+    const WHITE_HEADER_FRAC = 0.14;
     const BLEED_START_DELAY_VH = 0.00;
-    const WIPE_RANGE_VH = 1.10;
+    const WIPE_RANGE_VH = 1.10; // keep enough runway for full bleed
 
     const BLEED_START_Y = 0.18;
     const BLEED_TRAVEL  = 0.98;
@@ -121,12 +118,14 @@
     const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
 
     /*
-      Because we're fitting by HEIGHT:
-      rendered image height == viewport height (100vh).
-      So lock distance is vh * WHITE_HEADER_FRAC.
+      Head layer uses "meet" (fit by full visibility).
+      For square 1000x1000 in viewport:
+      renderedHeight = min(vw, vh)
     */
-    function getRenderedImageHeightPx() {
-      return window.innerHeight || 1;
+    function getHeadRenderedHeightPx() {
+      const vw = window.innerWidth || 1;
+      const vh = window.innerHeight || 1;
+      return Math.min(vw, vh);
     }
 
     function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
@@ -157,49 +156,5 @@
 
     function render(ts){
       const now = ts || performance.now();
-      const dt = lastTs ? Math.min(0.05,(now-lastTs)/1000) : 1/60;
-      lastTs = now;
-
-      const scrollY = window.scrollY || window.pageYOffset || 0;
-      const vh = window.innerHeight || 1;
-
-      const renderedImgH = getRenderedImageHeightPx();
-      const lockPx = renderedImgH * WHITE_HEADER_FRAC;
-
-      // shared pre-lock motion
-      const offsetPx = -Math.min(scrollY, lockPx);
-
-      // bg image already centered with translateX(-50%), append Y move
-      bgLayer.style.transform = `translate(-50%, ${offsetPx}px)`;
-
-      // head group in viewBox units (1000 units = renderedImgH px tall)
-      const vbOffset = (offsetPx / renderedImgH) * 1000;
-      headGroup.setAttribute('transform', `translate(0 ${vbOffset})`);
-
-      // bleed reveal after lock
-      const pastTrigger = Math.max(0, scrollY - lockPx - (BLEED_START_DELAY_VH * vh));
-      const rawP = clamp(pastTrigger / (WIPE_RANGE_VH * vh), 0, 1);
-
-      const pFollow = 1 - Math.exp(-dt * 7.0);
-      smoothP += (rawP - smoothP) * pFollow;
-
-      const y = BLEED_START_Y + BLEED_TRAVEL * smoothP;
-      const open = Math.pow(smoothP, 0.85);
-
-      leftClip.setAttribute('d', buildDripRects(
-        LEFT_INNER_X, -1, y, MAX_LEFT_WIDTH * open, now, L_COUNT, dt, leftLaneY
-      ));
-      rightClip.setAttribute('d', buildDripRects(
-        RIGHT_INNER_X, +1, y, MAX_RIGHT_WIDTH * open, now, R_COUNT, dt, rightLaneY
-      ));
-    }
-
-    function tick(ts){ render(ts); requestAnimationFrame(tick); }
-
-    render(performance.now());
-    requestAnimationFrame(tick);
-    window.addEventListener('scroll', () => render(performance.now()), { passive:true });
-    window.addEventListener('resize', () => render(performance.now()));
-  </script>
-</body>
-</html>
+      const dt = lastTs ? Math.min(0.05,(now-lastTs)/1000) :`*
+
