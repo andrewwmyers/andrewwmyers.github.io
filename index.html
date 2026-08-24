@@ -5,45 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wade Myers – Floating Head</title>
   <style>
-    html, body {
-      margin: 0;
-      background: #000;
-      overflow-x: hidden;
+    html, body { margin:0; background:#000; overflow-x:hidden; }
+    .scroll-runway { height:520vh; }
+
+    #stage{
+      position:fixed; inset:0; z-index:1;
+      pointer-events:none; overflow:hidden; background:#000;
     }
 
-    .scroll-runway { height: 520vh; }
-
-    #stage {
-      position: fixed;
-      inset: 0;
-      z-index: 1;
-      pointer-events: none;
-      overflow: hidden;
-      background: #000;
+    #bgLayer{
+      position:absolute; inset:0; width:100%; height:100%;
+      object-fit:cover; object-position:center top;
+      will-change:transform; z-index:1;
+      user-select:none; -webkit-user-drag:none;
     }
 
-    /* Background stays full-bleed */
-    #bgLayer {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      object-position: center top;
-      user-select: none;
-      -webkit-user-drag: none;
-      will-change: transform;
-      z-index: 1;
-    }
-
-    /* Single SVG engine for BOTH head images = perfect alignment */
-    #headSvg {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      z-index: 2;
-      will-change: transform;
+    #headSvg{
+      position:absolute; inset:0; width:100%; height:100%;
+      z-index:2; will-change:transform;
+      overflow:visible;
     }
   </style>
 </head>
@@ -53,7 +33,127 @@
   <div id="stage">
     <img id="bgLayer" src="./bg-base.png" alt="">
 
-    <svg id="headSvg" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
+    <svg id="headSvg"
+         viewBox="0 0 1000 1000"
+         preserveAspectRatio="xMidYMin slice"
+         aria-hidden="true"
+         xmlns="http://www.w3.org/2000/svg"
+         xmlns:xlink="http://www.w3.org/1999/xlink">
       <defs>
-        <clipPath id="dripClip" clipPathUnits="userSpaceOn*
-
+        <clipPath id="dripClip" clipPathUnits="userSpaceOnUse">
+          <path id="leftClip" d=""></path>
+          <path id="rightClip" d=""></path>
+        </clipPath>
+      </defs>
+
+      <g id="headGroup" transform="translate(0,0)">
+        <!-- base -->
+        <image id="headBase"
+               href="./head-base.png"
+               xlink:href="./head-base.png"
+               x="0" y="0" width="1000" height="1000"
+               preserveAspectRatio="xMidYMin slice"></image>
+
+        <!-- bleed -->
+        <image id="headBleed"
+               href="./head-bleed.png"
+               xlink:href="./head-bleed.png"
+               x="0" y="0" width="1000" height="1000"
+               preserveAspectRatio="xMidYMin slice"
+               clip-path="url(#dripClip)"></image>
+      </g>
+    </svg>
+  </div>
+
+  <script>
+    const LOCK_VH = 0.78;
+    const BLEED_START_DELAY_VH = 0.00;
+    const WIPE_RANGE_VH = 1.10;
+
+    const BLEED_START_Y = 0.18;
+    const BLEED_TRAVEL  = 0.98;
+
+    const LEFT_INNER_X  = 0.495;
+    const RIGHT_INNER_X = 0.53;
+
+    const MAX_LEFT_WIDTH  = 0.28;
+    const MAX_RIGHT_WIDTH = 0.28;
+    const DRIP_HALF_WIDTH = 0.012;
+
+    const L_COUNT = 14, R_COUNT = 14;
+
+    const bgLayer   = document.getElementById('bgLayer');
+    const headGroup = document.getElementById('headGroup');
+    const leftClip  = document.getElementById('leftClip');
+    const rightClip = document.getElementById('rightClip');
+
+    const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+    const lerp  = (a,b,t)=>a+(b-a)*t;
+
+    let smoothP = 0, lastTs = 0;
+    const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
+    const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
+
+    function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
+      const xEnd = clamp(xStart + dir * width, 0, 1);
+      const t1 = t * 0.0013, t2 = t * 0.0020;
+      let d = "";
+      for(let i=0;i<=laneCount;i++){
+        const u = i/laneCount, w = 1-u, x = lerp(xStart,xEnd,u);
+        const baseDepth = y + w*0.28 + (1-w)*0.10;
+        const wobble =
+          Math.sin(t1 + i*1.05) * (0.006 + w*0.007) +
+          Math.sin(t2 + i*1.81) * 0.004;
+
+        const targetY = clamp(baseDepth + wobble, 0, 1);
+        const follow = 1 - Math.exp(-dt * 18);
+        laneBuf[i] += (targetY - laneBuf[i]) * follow;
+
+        const yy = clamp(laneBuf[i],0,1);
+        const xl = clamp(x-DRIP_HALF_WIDTH,0,1) * 1000;
+        const xr = clamp(x+DRIP_HALF_WIDTH,0,1) * 1000;
+        const yb = yy * 1000;
+
+        d += `M ${xl} 0 L ${xr} 0 L ${xr} ${yb} L ${xl} ${yb} Z `;
+      }
+      return d;
+    }
+
+    function render(ts){
+      const now = ts || performance.now();
+      const dt = lastTs ? Math.min(0.05,(now-lastTs)/1000) : 1/60;
+      lastTs = now;
+
+      const scrollY = window.scrollY || window.pageYOffset || 0;
+      const vh = window.innerHeight || 1;
+
+      const lockPx = LOCK_VH * vh;
+      const offsetPx = -Math.min(scrollY, lockPx);
+
+      bgLayer.style.transform = `translate3d(0, ${offsetPx}px, 0)`;
+
+      const vbOffset = (offsetPx / vh) * 1000;
+      headGroup.setAttribute('transform', `translate(0 ${vbOffset})`);
+
+      const pastTrigger = Math.max(0, scrollY - lockPx - (BLEED_START_DELAY_VH * vh));
+      const rawP = clamp(pastTrigger / (WIPE_RANGE_VH * vh), 0, 1);
+
+      const pFollow = 1 - Math.exp(-dt * 7.0);
+      smoothP += (rawP - smoothP) * pFollow;
+
+      const y = BLEED_START_Y + BLEED_TRAVEL * smoothP;
+      const open = Math.pow(smoothP, 0.85);
+
+      leftClip.setAttribute('d', buildDripRects(LEFT_INNER_X, -1, y, MAX_LEFT_WIDTH*open, now, L_COUNT, dt, leftLaneY));
+      rightClip.setAttribute('d', buildDripRects(RIGHT_INNER_X, +1, y, MAX_RIGHT_WIDTH*open, now, R_COUNT, dt, rightLaneY));
+    }
+
+    function tick(ts){ render(ts); requestAnimationFrame(tick); }
+
+    render(performance.now());
+    requestAnimationFrame(tick);
+    window.addEventListener('scroll', () => render(performance.now()), { passive:true });
+    window.addEventListener('resize', () => render(performance.now()));
+  </script>
+</body>
+</html>
