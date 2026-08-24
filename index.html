@@ -8,9 +8,9 @@
 <body style="margin:0;background:#000;overflow-x:hidden;">
 
   <!-- Scroll runway -->
-  <div style="height:320vh;"></div>
+  <div style="height:340vh;"></div>
 
-  <!-- Base -->
+  <!-- Base layer -->
   <div id="baseLayer" style="
     position:fixed;
     inset:0;
@@ -22,41 +22,137 @@
     background-position:center 0px;
   "></div>
 
-  <!-- Bleed (locked to same transform as base) -->
-  <div id="bleedLayer" style="
-    position:fixed;
-    inset:0;
-    z-index:1;
-    pointer-events:none;
-    background-image:url('./bleed.png');
-    background-repeat:no-repeat;
-    background-size:cover;
-    background-position:center 0px;
-
-    -webkit-mask:url(#dripMask);
-    mask:url(#dripMask);
-    -webkit-mask-repeat:no-repeat;
-    mask-repeat:no-repeat;
-  "></div>
-
-  <!-- Hidden SVG defs -->
-  <svg width="0" height="0" style="position:absolute">
+  <!-- SVG overlay for bleed reveal -->
+  <svg id="bleedSvg" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid slice"
+       style="position:fixed;inset:0;z-index:1;pointer-events:none;width:100%;height:100%;">
     <defs>
-      <mask id="dripMask" maskUnits="objectBoundingBox" maskContentUnits="objectBoundingBox">
-        <!-- Hide all bleed by default -->
-        <rect x="0" y="0" width="1" height="1" fill="black"></rect>
+      <clipPath id="dripClip" clipPathUnits="userSpaceOnUse">
+        <path id="leftDripsClip" d=""></path>
+        <path id="rightDripsClip" d=""></path>
+      </clipPath>
+    </defs>
 
-        <!-- Reveal only drip lines -->
-        <path id="leftDrips"
-              d=""
-              fill="none"
-              stroke="white"
-              stroke-linecap="round"
-              stroke-width="0.018" />
-        <path id="rightDrips"
-              d=""
-              fill="none"
-              stroke="white"
-              stroke-linecap="round"
-              stroke-width="0
-
+    <!-- Full bleed image, clipped by drip paths -->
+    <image id="bleedImage"
+      href="./bleed.png"
+      x="0" y="0" width="1000" height="1000"
+      preserveAspectRatio="xMidYMid slice"
+      clip-path="url(#dripClip)" />
+  </svg>
+
+  <script>
+    // ---------------- Tuning ----------------
+    const HEADER_SCROLL_VH = 0.78;      // lock point relative to viewport
+    const BLEED_START_DELAY_VH = 0.00;  // extra delay after lock
+    const WIPE_RANGE = 1800;
+
+    const BLEED_START_Y = 0.20; // normalized (0..1 in viewport)
+    const BLEED_TRAVEL  = 0.94;
+
+    const LEFT_INNER_X  = 0.495;
+    const RIGHT_INNER_X = 0.53;
+    const MAX_LEFT_WIDTH  = 0.24;
+    const MAX_RIGHT_WIDTH = 0.24;
+
+    // thickness of revealed drip "columns" in normalized width
+    const DRIP_HALF_WIDTH = 0.010; // ~1% each side
+
+    // ----------------------------------------
+    const baseLayer = document.getElementById('baseLayer');
+    const bleedImage = document.getElementById('bleedImage');
+    const leftClip = document.getElementById('leftDripsClip');
+    const rightClip = document.getElementById('rightDripsClip');
+
+    const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+    const lerp = (a,b,t)=>a+(b-a)*t;
+
+    let smoothP = 0;
+    const L_COUNT = 12, R_COUNT = 12;
+    const leftLaneY  = Array.from({length:L_COUNT+1}, ()=>0);
+    const rightLaneY = Array.from({length:R_COUNT+1}, ()=>0);
+
+    function buildDripRibbonPath(xStart, dir, y, width, t, laneCount, dt, laneBuf) {
+      const xEnd = clamp(xStart + dir * width, 0, 1);
+      const pts = [];
+      const t1 = t * 0.0013, t2 = t * 0.0020;
+
+      for (let i = 0; i <= laneCount; i++) {
+        const u = i / laneCount;
+        const x = lerp(xStart, xEnd, u);
+        const w = 1 - u;
+
+        const baseDepth = y + w * 0.28 + (1 - w) * 0.10;
+        const wobble =
+          Math.sin(t1 + i * 1.05) * (0.005 + w * 0.006) +
+          Math.sin(t2 + i * 1.81) * 0.0035;
+
+        const targetY = clamp(baseDepth + wobble, 0, 1);
+        const follow = 1 - Math.exp(-dt * 18);
+        laneBuf[i] += (targetY - laneBuf[i]) * follow;
+
+        pts.push({x, y: clamp(laneBuf[i], 0, 1)});
+      }
+
+      // Build a thin filled ribbon around each lane by connecting left edge down and right edge up
+      let d = "";
+      for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
+        const xl = clamp(p.x - DRIP_HALF_WIDTH, 0, 1);
+        const xr = clamp(p.x + DRIP_HALF_WIDTH, 0, 1);
+        const yy = p.y;
+
+        // rectangle per lane from top to drip tip (robust clip shape)
+        d += `M ${xl*1000} 0 L ${xr*1000} 0 L ${xr*1000} ${yy*1000} L ${xl*1000} ${yy*1000} Z `;
+      }
+      return d;
+    }
+
+    let lastTs = 0;
+    function tick(ts){
+      if(!lastTs) lastTs = ts;
+      const dt = Math.min(0.05, (ts - lastTs) / 1000);
+      lastTs = ts;
+
+      const scrollY = window.scrollY || window.pageYOffset || 0;
+      const vh = window.innerHeight || 1;
+
+      const headerScrollPx = HEADER_SCROLL_VH * vh;
+      const bleedDelayPx = BLEED_START_DELAY_VH * vh;
+
+      // Move both layers together until lock
+      const headerProgress = clamp(scrollY / headerScrollPx, 0, 1);
+      const bgOffsetY = -headerScrollPx * headerProgress;
+
+      // Lock base and bleed together
+      const pos = `center ${bgOffsetY}px`;
+      baseLayer.style.backgroundPosition = pos;
+
+      // Move bleed image in SVG exactly the same amount (in viewBox units)
+      // Convert px offset to viewBox space relative to viewport height
+      const vbOffset = (bgOffsetY / vh) * 1000;
+      bleedImage.setAttribute('y', String(vbOffset));
+
+      // Bleed reveal progress
+      const pastTrigger = Math.max(0, scrollY - headerScrollPx - bleedDelayPx);
+      const rawP = clamp(pastTrigger / WIPE_RANGE, 0, 1);
+      const pFollow = 1 - Math.exp(-dt * 7.0);
+      smoothP += (rawP - smoothP) * pFollow;
+
+      const y = BLEED_START_Y + (BLEED_TRAVEL * smoothP);
+      const eyeOpen = Math.pow(smoothP, 0.85);
+      const leftWidth = MAX_LEFT_WIDTH * eyeOpen;
+      const rightWidth = MAX_RIGHT_WIDTH * eyeOpen;
+
+      const leftD = buildDripRibbonPath(LEFT_INNER_X, -1, y, leftWidth, ts, L_COUNT, dt, leftLaneY);
+      const rightD = buildDripRibbonPath(RIGHT_INNER_X, +1, y, rightWidth, ts, R_COUNT, dt, rightLaneY);
+
+      leftClip.setAttribute('d', leftD);
+      rightClip.setAttribute('d', rightD);
+
+      requestAnimationFrame(tick);
+    }
+
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>
