@@ -7,23 +7,21 @@
 </head>
 <body style="margin:0;background:#000;overflow-x:hidden;">
 
-  <!-- Phase 1: scrolling hero (moves up naturally) -->
-  <section id="scrollHero" style="
-    position:relative;
-    height:360vh; /* total scroll runway */
-    background:#000;
-  ">
-    <!-- This image scrolls with page, so header can move off screen -->
-    <div id="scrollBase" style="
-      position:sticky;
+  <!-- Real scroll space -->
+  <div style="height:360vh; position:relative;">
+    <!-- This one truly scrolls with document -->
+    <div id="scrollingBase" style="
+      position:absolute;
       top:0;
-      height:100vh;
+      left:0;
+      width:100%;
+      height:140vh;
       background:url('./base.png') center top / cover no-repeat;
-      z-index:0;
+      z-index:1;
     "></div>
-  </section>
+  </div>
 
-  <!-- Phase 2: fixed locked scene (turned on after trigger) -->
+  <!-- Fixed locked base (hidden until trigger) -->
   <div id="fixedBase" style="
     position:fixed;
     inset:0;
@@ -33,13 +31,13 @@
     pointer-events:none;
   "></div>
 
+  <!-- Bleed layer -->
   <div id="bleedLayer" style="
     position:fixed;
     inset:0;
     z-index:6;
     pointer-events:none;
     background:url('./bleed.png') center top / cover no-repeat;
-    opacity:1;
     clip-path:url(#dualEyeReveal);
     -webkit-clip-path:url(#dualEyeReveal);
   "></div>
@@ -54,14 +52,13 @@
   </svg>
 
   <script>
-    // ---- Behavior tuning ----
-    const HEADER_HEIGHT_PX = 230; // scroll amount to hide white header
-    const WIPE_RANGE = 1800;      // bleed reveal distance after trigger
+    const HEADER_HEIGHT_PX = 230;
+    const WIPE_RANGE = 1800;
 
-    // Your requested alignment
-    const LEFT_INNER_X  = 0.495;
+    const LEFT_INNER_X  = 0.495; // your saved value
     const RIGHT_INNER_X = 0.53;
 
+    const scrollingBase = document.getElementById('scrollingBase');
     const fixedBase = document.getElementById('fixedBase');
     const leftPath = document.getElementById('leftEyePath');
     const rightPath = document.getElementById('rightEyePath');
@@ -71,22 +68,16 @@
     const q = (v, step=0.0012) => Math.round(v / step) * step;
 
     let smoothP = 0;
-
-    const L_COUNT = 10;
-    const R_COUNT = 10;
-
+    const L_COUNT = 10, R_COUNT = 10;
     const leftPulse  = Array.from({length:L_COUNT}, () => ({amp:0}));
     const rightPulse = Array.from({length:R_COUNT}, () => ({amp:0}));
-
     const leftLaneY  = Array.from({length:L_COUNT+1}, () => 0);
     const rightLaneY = Array.from({length:R_COUNT+1}, () => 0);
 
     function updatePulses(arr, p, dtFrames) {
       for (const a of arr) {
         const burstChance = 0.0012 + 0.0026 * Math.sin(p * Math.PI);
-        if (Math.random() < burstChance * dtFrames) {
-          a.amp = Math.max(a.amp, 0.06 + Math.random() * 0.16);
-        }
+        if (Math.random() < burstChance * dtFrames) a.amp = Math.max(a.amp, 0.06 + Math.random() * 0.16);
         a.amp *= Math.pow(0.992, dtFrames);
       }
     }
@@ -94,30 +85,21 @@
     function buildEyePath(xStart, dir, y, width, t, pulses, laneCount, laneBuffer, dt) {
       const xEnd = clamp(xStart + dir * width, 0, 1);
       const pts = [];
-
-      const t1 = t * 0.0014;
-      const t2 = t * 0.0022;
+      const t1 = t * 0.0014, t2 = t * 0.0022;
 
       for (let i = 0; i <= laneCount; i++) {
         const u = i / laneCount;
         const x = lerp(xStart, xEnd, u);
-        const innerWeight = (1 - u);
-
+        const innerWeight = 1 - u;
         const baseDepth = y + innerWeight * 0.26 + (1-innerWeight) * 0.10;
-
-        const wobble =
-          Math.sin(t1 + i * 1.07) * (0.006 + innerWeight * 0.006) +
-          Math.sin(t2 + i * 1.83) * 0.004;
-
+        const wobble = Math.sin(t1 + i * 1.07) * (0.006 + innerWeight * 0.006) + Math.sin(t2 + i * 1.83) * 0.004;
         const pulse = (pulses[i % pulses.length].amp || 0) * (0.55 + innerWeight * 0.65);
-
-        let targetY = clamp(baseDepth + wobble + pulse, 0, 1);
+        const targetY = clamp(baseDepth + wobble + pulse, 0, 1);
 
         const laneFollow = 1 - Math.exp(-dt * 18);
         laneBuffer[i] += (targetY - laneBuffer[i]) * laneFollow;
 
-        const yy = q(laneBuffer[i], 0.0012);
-        pts.push({x, y:yy});
+        pts.push({ x, y: q(laneBuffer[i], 0.0012) });
       }
 
       const sway = Math.sin(t * 0.0008) * 0.0035;
@@ -126,11 +108,7 @@
       let d = `M ${xStart} 0 L ${xEnd} 0 L ${pts[pts.length-1].x} ${pts[pts.length-1].y} `;
       for (let i = pts.length - 2; i >= 0; i--) {
         const p0 = pts[i+1], p1 = pts[i];
-        const cx1 = q(lerp(p0.x, p1.x, 0.38), 0.0009);
-        const cy1 = q(p0.y, 0.0012);
-        const cx2 = q(lerp(p0.x, p1.x, 0.62), 0.0009);
-        const cy2 = q(p1.y, 0.0012);
-        d += `C ${cx1} ${cy1}, ${cx2} ${cy2}, ${p1.x} ${p1.y} `;
+        d += `C ${q(lerp(p0.x,p1.x,0.38),0.0009)} ${q(p0.y,0.0012)}, ${q(lerp(p0.x,p1.x,0.62),0.0009)} ${q(p1.y,0.0012)}, ${p1.x} ${p1.y} `;
       }
       d += `L ${xStart} 0 Z`;
       return d;
@@ -144,41 +122,30 @@
 
       const scrollY = window.scrollY || window.pageYOffset || 0;
 
-      // Phase switch:
-      // before trigger: scrolling hero visible
-      // after trigger: fixedBase fades in and locks scene
+      // Force phase switch
       const pastTrigger = Math.max(0, scrollY - HEADER_HEIGHT_PX);
       const phase2 = pastTrigger > 0;
 
+      // Before trigger: only scrolling image visible
+      // After trigger: fixed base visible, scrolling one hidden
+      scrollingBase.style.opacity = phase2 ? "0" : "1";
       fixedBase.style.opacity = phase2 ? "1" : "0";
 
-      // bleed progress only in phase 2
       const rawP = clamp(pastTrigger / WIPE_RANGE, 0, 1);
-
       const follow = 1 - Math.exp(-dt * 7.0);
       smoothP += (rawP - smoothP) * follow;
 
       const y = -0.30 + (1.42 * smoothP);
-
-      const maxLeftWidth  = 0.24;
-      const maxRightWidth = 0.24;
       const eyeOpen = Math.pow(smoothP, 0.85);
-      const leftWidth = maxLeftWidth * eyeOpen;
-      const rightWidth = maxRightWidth * eyeOpen;
+      const leftWidth = 0.24 * eyeOpen;
+      const rightWidth = 0.24 * eyeOpen;
 
       const dtFrames = dt * 60;
       updatePulses(leftPulse, smoothP, dtFrames);
       updatePulses(rightPulse, smoothP, dtFrames);
 
-      const leftD = buildEyePath(
-        LEFT_INNER_X, -1, y, leftWidth, ts, leftPulse, L_COUNT, leftLaneY, dt
-      );
-      const rightD = buildEyePath(
-        RIGHT_INNER_X, +1, y, rightWidth, ts, rightPulse, R_COUNT, rightLaneY, dt
-      );
-
-      leftPath.setAttribute('d', leftD);
-      rightPath.setAttribute('d', rightD);
+      leftPath.setAttribute('d', buildEyePath(LEFT_INNER_X, -1, y, leftWidth, ts, leftPulse, L_COUNT, leftLaneY, dt));
+      rightPath.setAttribute('d', buildEyePath(RIGHT_INNER_X, +1, y, rightWidth, ts, rightPulse, R_COUNT, rightLaneY, dt));
 
       requestAnimationFrame(tick);
     }
