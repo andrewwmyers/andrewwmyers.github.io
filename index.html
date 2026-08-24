@@ -7,164 +7,120 @@
 </head>
 <body style="margin:0;background:#000;overflow-x:hidden;">
 
-  <!-- Scroll spacer: gives real page scroll distance -->
+  <!-- Scroll runway -->
   <div style="height:320vh;"></div>
 
-  <!-- Base image stays static -->
-  <div style="
-    position:fixed;
-    inset:0;
-    background:url('./base.png') center top / cover no-repeat;
-    z-index:0;
-    pointer-events:none;
+  <!-- Base -->
+  <div id="baseLayer" style="
+    position:fixed; inset:0; z-index:0; pointer-events:none;
+    background-image:url('./base.png');
+    background-repeat:no-repeat;
+    background-size:cover;
+    background-position:center 0px;
   "></div>
 
-  <!-- Bleed layer -->
+  <!-- Bleed (must stay perfectly aligned with base) -->
   <div id="bleedLayer" style="
-    position:fixed;
-    inset:0;
-    z-index:1;
-    pointer-events:none;
-    background:url('./bleed.png') center top / cover no-repeat;
-    clip-path:url(#dualEyeReveal);
-    -webkit-clip-path:url(#dualEyeReveal);
+    position:fixed; inset:0; z-index:1; pointer-events:none;
+    background-image:url('./bleed.png');
+    background-repeat:no-repeat;
+    background-size:cover;
+    background-position:center 0px;
+    -webkit-mask:url(#dripMask);
+    mask:url(#dripMask);
+    -webkit-mask-repeat:no-repeat;
+    mask-repeat:no-repeat;
   "></div>
 
   <svg width="0" height="0" style="position:absolute">
     <defs>
-      <clipPath id="dualEyeReveal" clipPathUnits="objectBoundingBox">
-        <path id="leftEyePath" d="M0 0 L0 0 Z"></path>
-        <path id="rightEyePath" d="M0 0 L0 0 Z"></path>
-      </clipPath>
+      <mask id="dripMask" maskUnits="objectBoundingBox" maskContentUnits="objectBoundingBox">
+        <rect x="0" y="0" width="1" height="1" fill="black"></rect>
+        <path id="leftDrips"  d="" fill="none" stroke="white" stroke-linecap="round" stroke-width="0.018"/>
+        <path id="rightDrips" d="" fill="none" stroke="white" stroke-linecap="round" stroke-width="0.018"/>
+      </mask>
     </defs>
   </svg>
 
   <script>
-    // Scroll behavior:
-    // 1) User scrolls until white header area is gone
-    // 2) Base remains static
-    // 3) Bleed animation starts
-
-    // Tune this to your image's white header height
-    const HEADER_HEIGHT_PX = 230;
-
-    // How much scroll distance for full bleed reveal after trigger
+    const HEADER_SCROLL_PX = 700;
     const WIPE_RANGE = 1800;
 
-    // Keep your requested update:
     const LEFT_INNER_X  = 0.495;
     const RIGHT_INNER_X = 0.53;
+    const MAX_LEFT_WIDTH = 0.24;
+    const MAX_RIGHT_WIDTH = 0.24;
 
-    const leftPath = document.getElementById('leftEyePath');
-    const rightPath = document.getElementById('rightEyePath');
+    const baseLayer = document.getElementById('baseLayer');
+    const bleedLayer = document.getElementById('bleedLayer');
+    const leftDrips = document.getElementById('leftDrips');
+    const rightDrips = document.getElementById('rightDrips');
 
-    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-    const lerp = (a,b,t) => a + (b-a)*t;
-    const q = (v, step=0.0012) => Math.round(v / step) * step;
+    const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+    const lerp = (a,b,t)=>a+(b-a)*t;
+    const q = (v,s=0.0012)=>Math.round(v/s)*s;
 
     let smoothP = 0;
+    const L_COUNT = 12, R_COUNT = 12;
+    const leftLaneY = Array.from({length:L_COUNT+1},()=>0);
+    const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
 
-    const L_COUNT = 10;
-    const R_COUNT = 10;
-
-    const leftPulse  = Array.from({length:L_COUNT}, (_,i)=>({amp:0}));
-    const rightPulse = Array.from({length:R_COUNT}, (_,i)=>({amp:0}));
-
-    const leftLaneY  = Array.from({length:L_COUNT+1}, () => 0);
-    const rightLaneY = Array.from({length:R_COUNT+1}, () => 0);
-
-    function updatePulses(arr, p, dtFrames) {
-      for (const a of arr) {
-        const burstChance = 0.0012 + 0.0026 * Math.sin(p * Math.PI);
-        if (Math.random() < burstChance * dtFrames) {
-          a.amp = Math.max(a.amp, 0.06 + Math.random() * 0.16);
-        }
-        a.amp *= Math.pow(0.992, dtFrames);
-      }
-    }
-
-    function buildEyePath(xStart, dir, y, width, t, pulses, laneCount, laneBuffer, dt) {
+    function buildDrips(xStart, dir, y, width, t, laneCount, dt, laneBuf) {
       const xEnd = clamp(xStart + dir * width, 0, 1);
-      const pts = [];
+      let d = "";
+      const t1 = t * 0.0013, t2 = t * 0.0020;
 
-      const t1 = t * 0.0014;
-      const t2 = t * 0.0022;
-
-      for (let i = 0; i <= laneCount; i++) {
-        const u = i / laneCount;
+      for (let i=0;i<=laneCount;i++) {
+        const u = i/laneCount;
         const x = lerp(xStart, xEnd, u);
-        const innerWeight = (1 - u);
+        const w = 1-u;
 
-        const baseDepth = y + innerWeight * 0.26 + (1-innerWeight) * 0.10;
-
+        const baseDepth = y + w*0.28 + (1-w)*0.10;
         const wobble =
-          Math.sin(t1 + i * 1.07) * (0.006 + innerWeight * 0.006) +
-          Math.sin(t2 + i * 1.83) * 0.004;
+          Math.sin(t1 + i*1.05)*(0.005 + w*0.006) +
+          Math.sin(t2 + i*1.81)*0.0035;
 
-        const pulse = (pulses[i % pulses.length].amp || 0) * (0.55 + innerWeight * 0.65);
+        const targetY = clamp(baseDepth + wobble, 0, 1);
+        const follow = 1 - Math.exp(-dt*18);
+        laneBuf[i] += (targetY - laneBuf[i]) * follow;
 
-        let targetY = clamp(baseDepth + wobble + pulse, 0, 1);
-
-        const laneFollow = 1 - Math.exp(-dt * 18);
-        laneBuffer[i] += (targetY - laneBuffer[i]) * laneFollow;
-
-        const yy = q(laneBuffer[i], 0.0012);
-        pts.push({x, y:yy});
+        d += `M ${q(x,0.0009)} 0 L ${q(x,0.0009)} ${q(laneBuf[i],0.0012)} `;
       }
-
-      const sway = Math.sin(t * 0.0008) * 0.0035;
-      for (const p of pts) p.x = clamp(q(p.x + sway * dir, 0.0009), 0, 1);
-
-      let d = `M ${xStart} 0 L ${xEnd} 0 L ${pts[pts.length-1].x} ${pts[pts.length-1].y} `;
-      for (let i = pts.length - 2; i >= 0; i--) {
-        const p0 = pts[i+1], p1 = pts[i];
-        const cx1 = q(lerp(p0.x, p1.x, 0.38), 0.0009);
-        const cy1 = q(p0.y, 0.0012);
-        const cx2 = q(lerp(p0.x, p1.x, 0.62), 0.0009);
-        const cy2 = q(p1.y, 0.0012);
-        d += `C ${cx1} ${cy1}, ${cx2} ${cy2}, ${p1.x} ${p1.y} `;
-      }
-      d += `L ${xStart} 0 Z`;
       return d;
     }
 
     let lastTs = 0;
-    function tick(ts) {
-      if (!lastTs) lastTs = ts;
-      const dt = Math.min(0.05, (ts - lastTs) / 1000);
+    function tick(ts){
+      if(!lastTs) lastTs = ts;
+      const dt = Math.min(0.05,(ts-lastTs)/1000);
       lastTs = ts;
 
       const scrollY = window.scrollY || window.pageYOffset || 0;
 
-      // Animation starts only AFTER white header scrolls away
-      const pastTrigger = Math.max(0, scrollY - HEADER_HEIGHT_PX);
+      // Shared scroll offset (locks base+bleed together)
+      const headerProgress = clamp(scrollY / HEADER_SCROLL_PX, 0, 1);
+      const bgOffsetY = -HEADER_SCROLL_PX * headerProgress;
+
+      // APPLY SAME OFFSET TO BOTH LAYERS
+      const pos = `center ${bgOffsetY}px`;
+      baseLayer.style.backgroundPosition = pos;
+      bleedLayer.style.backgroundPosition = pos;
+
+      // Bleed reveal starts after header hidden
+      const pastTrigger = Math.max(0, scrollY - HEADER_SCROLL_PX);
       const rawP = clamp(pastTrigger / WIPE_RANGE, 0, 1);
+      const pFollow = 1 - Math.exp(-dt*7.0);
+      smoothP += (rawP - smoothP) * pFollow;
 
-      const follow = 1 - Math.exp(-dt * 7.0);
-      smoothP += (rawP - smoothP) * follow;
+      const BLEED_START_Y = 0.05;   // raise/lower visible starting point
+      const BLEED_TRAVEL  = 0.94;   // total downward travel
+      const y = BLEED_START_Y + (BLEED_TRAVEL * smoothP);
+      const eyeOpen = Math.pow(smoothP,0.85);
+      const leftWidth = MAX_LEFT_WIDTH * eyeOpen;
+      const rightWidth = MAX_RIGHT_WIDTH * eyeOpen;
 
-      // drip edge travels from above viewport to below
-      const y = -0.30 + (1.42 * smoothP);
-
-      const maxLeftWidth  = 0.24;
-      const maxRightWidth = 0.24;
-      const eyeOpen = Math.pow(smoothP, 0.85);
-      const leftWidth = maxLeftWidth * eyeOpen;
-      const rightWidth = maxRightWidth * eyeOpen;
-
-      const dtFrames = dt * 60;
-      updatePulses(leftPulse, smoothP, dtFrames);
-      updatePulses(rightPulse, smoothP, dtFrames);
-
-      const leftD = buildEyePath(
-        LEFT_INNER_X, -1, y, leftWidth, ts, leftPulse, L_COUNT, leftLaneY, dt
-      );
-      const rightD = buildEyePath(
-        RIGHT_INNER_X, +1, y, rightWidth, ts, rightPulse, R_COUNT, rightLaneY, dt
-      );
-
-      leftPath.setAttribute('d', leftD);
-      rightPath.setAttribute('d', rightD);
+      leftDrips.setAttribute('d', buildDrips(LEFT_INNER_X,-1,y,leftWidth,ts,L_COUNT,dt,leftLaneY));
+      rightDrips.setAttribute('d', buildDrips(RIGHT_INNER_X,+1,y,rightWidth,ts,R_COUNT,dt,rightLaneY));
 
       requestAnimationFrame(tick);
     }
