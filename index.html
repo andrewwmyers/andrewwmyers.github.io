@@ -8,7 +8,6 @@
 <body style="margin:0;background:#000;overflow-x:hidden;">
   <div style="height:340vh;"></div>
 
-  <!-- Single unified renderer -->
   <svg id="scene" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid slice"
        style="position:fixed;inset:0;width:100%;height:100%;display:block;pointer-events:none;z-index:1;">
     <defs>
@@ -18,16 +17,22 @@
       </clipPath>
     </defs>
 
-    <!-- Base and bleed share exact same transform/viewport -->
-    <image id="baseImg"  href="./base.png"  x="0" y="0" width="1000" height="1000" preserveAspectRatio="xMidYMid slice"></image>
-    <image id="bleedImg" href="./bleed.png" x="0" y="0" width="1000" height="1000" preserveAspectRatio="xMidYMid slice"
-           clip-path="url(#dripClip)"></image>
+    <image id="baseImg"
+      href="./base.png"
+      x="0" y="0" width="1000" height="1000"
+      preserveAspectRatio="xMidYMid slice"></image>
+
+    <image id="bleedImg"
+      href="./bleed.png"
+      x="0" y="0" width="1000" height="1000"
+      preserveAspectRatio="xMidYMid slice"
+      clip-path="url(#dripClip)"></image>
   </svg>
 
   <script>
-    // ---- tuning ----
-    const HEADER_SCROLL_VH = 0.78;
-    const BLEED_START_DELAY_VH = 0.00;
+    // ---------- Tuning ----------
+    const HEADER_SCROLL_VH = 0.78;       // how far to scroll before lock
+    const BLEED_START_DELAY_VH = 0.00;   // delay after lock
     const WIPE_RANGE = 1800;
 
     const BLEED_START_Y = 0.20;
@@ -39,81 +44,93 @@
     const MAX_RIGHT_WIDTH = 0.24;
     const DRIP_HALF_WIDTH = 0.010;
 
-    const baseImg  = document.getElementById('baseImg');
-    const bleedImg = document.getElementById('bleedImg');
-    const leftClip = document.getElementById('leftClip');
+    // Ensure full image starts at its natural top (white header visible at load)
+    const START_OFFSET_PX = 0;
+    // ---------------------------
+
+    const baseImg   = document.getElementById('baseImg');
+    const bleedImg  = document.getElementById('bleedImg');
+    const leftClip  = document.getElementById('leftClip');
     const rightClip = document.getElementById('rightClip');
 
-    const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
-    const lerp=(a,b,t)=>a+(b-a)*t;
+    const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+    const lerp  = (a,b,t)=>a+(b-a)*t;
 
     let smoothP = 0;
-    const L_COUNT=12, R_COUNT=12;
-    const leftLaneY=Array.from({length:L_COUNT+1},()=>0);
-    const rightLaneY=Array.from({length:R_COUNT+1},()=>0);
+    const L_COUNT = 12, R_COUNT = 12;
+    const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
+    const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
 
     function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
-      const xEnd = clamp(xStart + dir*width, 0, 1);
-      const t1 = t*0.0013, t2 = t*0.0020;
+      const xEnd = clamp(xStart + dir * width, 0, 1);
+      const t1 = t * 0.0013, t2 = t * 0.0020;
       let d = "";
 
       for(let i=0;i<=laneCount;i++){
-        const u=i/laneCount, w=1-u;
-        const x=lerp(xStart,xEnd,u);
+        const u = i / laneCount;
+        const w = 1 - u;
+        const x = lerp(xStart, xEnd, u);
 
-        const baseDepth = y + w*0.28 + (1-w)*0.10;
-        const wobble = Math.sin(t1+i*1.05)*(0.005+w*0.006) + Math.sin(t2+i*1.81)*0.0035;
-        const targetY = clamp(baseDepth+wobble,0,1);
+        const baseDepth = y + w * 0.28 + (1 - w) * 0.10;
+        const wobble =
+          Math.sin(t1 + i * 1.05) * (0.005 + w * 0.006) +
+          Math.sin(t2 + i * 1.81) * 0.0035;
 
-        const follow = 1 - Math.exp(-dt*18);
-        laneBuf[i] += (targetY-laneBuf[i])*follow;
+        const targetY = clamp(baseDepth + wobble, 0, 1);
+        const follow = 1 - Math.exp(-dt * 18);
+        laneBuf[i] += (targetY - laneBuf[i]) * follow;
 
-        const yy = clamp(laneBuf[i],0,1);
-        const xl = clamp(x-DRIP_HALF_WIDTH,0,1)*1000;
-        const xr = clamp(x+DRIP_HALF_WIDTH,0,1)*1000;
-        const yb = yy*1000;
+        const yy = clamp(laneBuf[i], 0, 1);
+        const xl = clamp(x - DRIP_HALF_WIDTH, 0, 1) * 1000;
+        const xr = clamp(x + DRIP_HALF_WIDTH, 0, 1) * 1000;
+        const yb = yy * 1000;
 
         d += `M ${xl} 0 L ${xr} 0 L ${xr} ${yb} L ${xl} ${yb} Z `;
       }
       return d;
     }
 
-    let lastTs=0;
+    let lastTs = 0;
     function tick(ts){
-      if(!lastTs) lastTs=ts;
-      const dt=Math.min(0.05,(ts-lastTs)/1000);
-      lastTs=ts;
+      if(!lastTs) lastTs = ts;
+      const dt = Math.min(0.05, (ts - lastTs) / 1000);
+      lastTs = ts;
 
-      const scrollY=window.scrollY||window.pageYOffset||0;
-      const vh=window.innerHeight||1;
+      const scrollY = window.scrollY || window.pageYOffset || 0;
+      const vh = window.innerHeight || 1;
 
       const headerScrollPx = HEADER_SCROLL_VH * vh;
-      const bleedDelayPx   = BLEED_START_DELAY_VH * vh;
+      const bleedDelayPx = BLEED_START_DELAY_VH * vh;
 
-      // shared "scroll away header" offset applied to BOTH images identically
-      const headerProgress = clamp(scrollY/headerScrollPx,0,1);
-      const bgOffsetPx = -headerScrollPx*headerProgress;
+      // 1) Start at 0 offset (header visible), then move up until lock
+      const headerProgress = clamp(scrollY / headerScrollPx, 0, 1);
+      const bgOffsetPx = START_OFFSET_PX - (headerScrollPx * headerProgress);
+
+      // convert px offset to SVG viewBox units
       const vbOffset = (bgOffsetPx / vh) * 1000;
 
+      // apply identical transform to both images (keeps perfect lock)
       baseImg.setAttribute('y', String(vbOffset));
       bleedImg.setAttribute('y', String(vbOffset));
 
-      // bleed progression
+      // 2) Bleed reveal begins after lock (+ optional delay)
       const pastTrigger = Math.max(0, scrollY - headerScrollPx - bleedDelayPx);
       const rawP = clamp(pastTrigger / WIPE_RANGE, 0, 1);
-      const follow = 1 - Math.exp(-dt*7.0);
-      smoothP += (rawP - smoothP)*follow;
 
-      const y = BLEED_START_Y + BLEED_TRAVEL*smoothP;
-      const eyeOpen = Math.pow(smoothP,0.85);
-      const lw = MAX_LEFT_WIDTH*eyeOpen;
-      const rw = MAX_RIGHT_WIDTH*eyeOpen;
+      const pFollow = 1 - Math.exp(-dt * 7.0);
+      smoothP += (rawP - smoothP) * pFollow;
 
-      leftClip.setAttribute('d', buildDripRects(LEFT_INNER_X,-1,y,lw,ts,L_COUNT,dt,leftLaneY));
-      rightClip.setAttribute('d', buildDripRects(RIGHT_INNER_X,+1,y,rw,ts,R_COUNT,dt,rightLaneY));
+      const y = BLEED_START_Y + (BLEED_TRAVEL * smoothP);
+      const eyeOpen = Math.pow(smoothP, 0.85);
+      const lw = MAX_LEFT_WIDTH * eyeOpen;
+      const rw = MAX_RIGHT_WIDTH * eyeOpen;
+
+      leftClip.setAttribute('d', buildDripRects(LEFT_INNER_X, -1, y, lw, ts, L_COUNT, dt, leftLaneY));
+      rightClip.setAttribute('d', buildDripRects(RIGHT_INNER_X, +1, y, rw, ts, R_COUNT, dt, rightLaneY));
 
       requestAnimationFrame(tick);
     }
+
     requestAnimationFrame(tick);
   </script>
 </body>
