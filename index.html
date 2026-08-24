@@ -5,54 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Floating Head</title>
   <style>
-    html, body {
-      margin: 0;
-      background: #000;
-      overflow-x: hidden;
+    html, body { margin:0; background:#000; overflow-x:hidden; }
+    .scroll-runway { height:560vh; }
+
+    #stage{
+      position:fixed; inset:0; z-index:2;
+      pointer-events:none; overflow:hidden; background:#000;
     }
 
-    .scroll-runway { height: 560vh; }
-
-    #stage {
-      position: fixed;
-      inset: 0;
-      z-index: 2;
-      pointer-events: none;
-      overflow: hidden;
-      background: #000;
+    #bgLayer{
+      position:absolute; inset:0; width:100%; height:100%;
+      object-fit:cover; object-position:center top;
+      z-index:1; will-change:transform;
+      user-select:none; -webkit-user-drag:none;
     }
 
-    #bgLayer {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      object-position: center top;
-      z-index: 1;
-      will-change: transform;
-      user-select: none;
-      -webkit-user-drag: none;
+    /* Permanently centered shell */
+    #headShell{
+      position:absolute;
+      left:50%;
+      top:0;
+      width:1000px;   /* art units */
+      height:1000px;
+      transform:translateX(-50%);
+      transform-origin:top center;
+      z-index:2;
+      will-change:transform;
     }
 
-    /* Hard-centered shell */
-    #headShell {
-      position: absolute;
-      left: 50%;
-      top: 0;
-      width: 1000px;
-      height: 1000px;
-      transform: translateX(-50%);
-      transform-origin: top center;
-      z-index: 2;
-      will-change: transform;
-    }
-
-    #headSvg {
-      width: 100%;
-      height: 100%;
-      display: block;
-      overflow: visible;
+    #headSvg{
+      width:100%; height:100%;
+      display:block; overflow:visible;
     }
   </style>
 </head>
@@ -89,19 +72,15 @@
   </div>
 
   <script>
-    // ===== Behavior controls =====
+    // ===== Desired behavior =====
     const WHITE_HEADER_FRAC = 0.14;
+    const HEAD_WIDTH_FRAC   = 0.92; // bigger
+    const HEAD_MIN_PX       = 700;
+    const HEAD_MAX_PX       = 1500;
 
-    // Bigger head
-    const HEAD_WIDTH_FRAC = 0.92;
-    const HEAD_MIN_PX = 700;
-    const HEAD_MAX_PX = 1500;
-
-    // Bleed timing
     const BLEED_START_DELAY_VH = 0.00;
-    const WIPE_RANGE_VH = 1.35;
+    const WIPE_RANGE_VH        = 1.35;
 
-    // Bleed geometry
     const BLEED_START_Y = 0.18;
     const BLEED_TRAVEL  = 0.99;
     const LEFT_INNER_X  = 0.495;
@@ -124,96 +103,65 @@
     const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
     const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
 
-    // ---- Critical: freeze vertical anchor in CSS px ----
-    let frozenHeaderBottomPx = null;
-    let baselineClientW = null;
-    let baselineClientH = null;
+    // ===== CRITICAL: freeze anchor + scale ONCE =====
+    const initialVW = document.documentElement.clientWidth || window.innerWidth || 1;
+    const initialVH = document.documentElement.clientHeight || window.innerHeight || 1;
 
-    function layoutViewport() {
-      const de = document.documentElement;
-      return {
-        w: de.clientWidth || window.innerWidth || 1,
-        h: de.clientHeight || window.innerHeight || 1
-      };
-    }
+    const frozenHeaderBottomPx = WHITE_HEADER_FRAC * initialVH;
+    const frozenHeadPx = clamp(initialVW * HEAD_WIDTH_FRAC, HEAD_MIN_PX, HEAD_MAX_PX);
+    const frozenScale = frozenHeadPx / 1000;
 
-    function initOrRefreshAnchor(force = false) {
-      const vp = layoutViewport();
-      if (force || frozenHeaderBottomPx === null) {
-        frozenHeaderBottomPx = WHITE_HEADER_FRAC * vp.h;
-        baselineClientW = vp.w;
-        baselineClientH = vp.h;
-        return;
-      }
+    // Apply once, never change on zoom/resize
+    headShell.style.transform =
+      `translateX(-50%) translateY(${frozenHeaderBottomPx}px) scale(${frozenScale})`;
 
-      // Recompute only on real layout resize, not ctrl+wheel zoom jitter
-      const wChange = Math.abs(vp.w - baselineClientW);
-      const hChange = Math.abs(vp.h - baselineClientH);
-
-      if (wChange > 24 || hChange > 24) {
-        frozenHeaderBottomPx = WHITE_HEADER_FRAC * vp.h;
-        baselineClientW = vp.w;
-        baselineClientH = vp.h;
-      }
-    }
-
-    function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf) {
+    function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
       const xEnd = clamp(xStart + dir * width, 0, 1);
       const t1 = t * 0.0013, t2 = t * 0.0020;
       let d = "";
 
-      for (let i = 0; i <= laneCount; i++) {
-        const u = i / laneCount, w = 1 - u, x = lerp(xStart, xEnd, u);
-        const baseDepth = y + w * 0.28 + (1 - w) * 0.10;
+      for(let i=0;i<=laneCount;i++){
+        const u = i/laneCount, w = 1-u, x = lerp(xStart,xEnd,u);
+        const baseDepth = y + w*0.28 + (1-w)*0.10;
         const wobble =
-          Math.sin(t1 + i * 1.05) * (0.006 + w * 0.007) +
-          Math.sin(t2 + i * 1.81) * 0.004;
+          Math.sin(t1 + i*1.05) * (0.006 + w*0.007) +
+          Math.sin(t2 + i*1.81) * 0.004;
 
         const targetY = clamp(baseDepth + wobble, 0, 1);
         const follow = 1 - Math.exp(-dt * 18);
         laneBuf[i] += (targetY - laneBuf[i]) * follow;
 
-        const yy = clamp(laneBuf[i], 0, 1);
-        const xl = clamp(x - DRIP_HALF_WIDTH, 0, 1) * 1000;
-        const xr = clamp(x + DRIP_HALF_WIDTH, 0, 1) * 1000;
+        const yy = clamp(laneBuf[i],0,1);
+        const xl = clamp(x-DRIP_HALF_WIDTH,0,1) * 1000;
+        const xr = clamp(x+DRIP_HALF_WIDTH,0,1) * 1000;
         const yb = yy * 1000;
         d += `M ${xl} 0 L ${xr} 0 L ${xr} ${yb} L ${xl} ${yb} Z `;
       }
       return d;
     }
 
-    function render(ts) {
+    function render(ts){
       const now = ts || performance.now();
-      const dt = lastTs ? Math.min(0.05, (now - lastTs)/1000) : 1/60;
+      const dt = lastTs ? Math.min(0.05, (now-lastTs)/1000) : 1/60;
       lastTs = now;
 
-      initOrRefreshAnchor(false);
-
-      const vp = layoutViewport();
-      const vw = vp.w, vh = vp.h;
       const scrollY = window.scrollY || window.pageYOffset || 0;
+      const vh = window.innerHeight || initialVH;
 
-      // Uniform head size (can scale with page width, clamped)
-      const headPx = clamp(vw * HEAD_WIDTH_FRAC, HEAD_MIN_PX, HEAD_MAX_PX);
-      const scale = headPx / 1000;
-
-      // Keep perfectly centered; keep frozen vertical anchor
-      const headerBottomPx = frozenHeaderBottomPx;
-      headShell.style.transform = `translateX(-50%) translateY(${headerBottomPx}px) scale(${scale})`;
-
-      // Scroll up until white header no longer fully visible
-      const lockPx = headerBottomPx;
+      // scroll-up until header disappears (using frozen lock distance)
+      const lockPx = frozenHeaderBottomPx;
       const offsetPx = -Math.min(scrollY, lockPx);
 
       bgLayer.style.transform = `translate3d(0, ${offsetPx}px, 0)`;
 
-      // move art in local units so scale doesn't distort motion
-      headScroll.setAttribute('transform', `translate(0 ${offsetPx / scale})`);
+      // Convert px motion into local art units using FROZEN scale
+      headScroll.setAttribute('transform', `translate(0 ${offsetPx / frozenScale})`);
 
-      // Bleed starts after lock
+      // Bleed phase
       const past = Math.max(0, scrollY - lockPx - (BLEED_START_DELAY_VH * vh));
       const rawP = clamp(past / (WIPE_RANGE_VH * vh), 0, 1);
-      const follow = 1 - Math.exp(-dt * 7);
+
+      const follow = 1 - Math.exp(-dt * 7.0);
       smoothP += (rawP - smoothP) * follow;
 
       const y = BLEED_START_Y + BLEED_TRAVEL * smoothP;
@@ -223,28 +171,5 @@
         LEFT_INNER_X, -1, y, MAX_LEFT_WIDTH * open, now, L_COUNT, dt, leftLaneY
       ));
       rightClip.setAttribute('d', buildDripRects(
-        RIGHT_INNER_X, +1, y, MAX_RIGHT_WIDTH * open, now, R_COUNT, dt, rightLaneY
-      ));
-    }
-
-    function tick(ts) {
-      render(ts);
-      requestAnimationFrame(tick);
-    }
-
-    // Initial freeze
-    initOrRefreshAnchor(true);
-
-    render(performance.now());
-    requestAnimationFrame(tick);
-
-    window.addEventListener('scroll', () => render(performance.now()), { passive: true });
-    window.addEventListener('resize', () => {
-      // may be real resize OR zoom; guard inside initOrRefreshAnchor
-      render(performance.now());
-    });
-
-    // Ignore visualViewport resize/scroll so ctrl+wheel zoom does not re-anchor
-  </script>
-</body>
-</html>
+        RIGHT_INNER_X, +1, y, MAX_RIGHT_WIDTH * open, now, R_COUNT, dt*
+
