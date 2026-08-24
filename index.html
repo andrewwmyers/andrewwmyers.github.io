@@ -3,49 +3,31 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Floating Head + Bleed</title>
+  <title>Floating Head + Locked Relative Layout</title>
   <style>
-    html, body {
-      margin: 0;
-      background: #000;
-      overflow-x: hidden;
+    html, body { margin:0; background:#000; overflow-x:hidden; }
+    .scroll-runway { height:560vh; }
+
+    #stage{
+      position:fixed; inset:0;
+      z-index:2; pointer-events:none;
+      overflow:hidden; background:#000;
     }
 
-    /* Long enough for full bleed progression */
-    .scroll-runway { height: 560vh; }
-
-    #stage {
-      position: fixed;
-      inset: 0;
-      z-index: 2;
-      pointer-events: none;
-      overflow: hidden;
-      background: #000;
+    /* BG always fills */
+    #bgLayer{
+      position:absolute; inset:0;
+      width:100%; height:100%;
+      object-fit:cover; object-position:center top;
+      z-index:1; will-change:transform;
+      user-select:none; -webkit-user-drag:none;
     }
 
-    /* Background always fills screen (no side/bottom black border) */
-    #bgLayer {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      object-position: center top;
-      z-index: 1;
-      will-change: transform;
-      user-select: none;
-      -webkit-user-drag: none;
-    }
-
-    /* Head system */
-    #headSvg {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      z-index: 2;
-      overflow: visible;
-      will-change: transform;
+    #headSvg{
+      position:absolute; inset:0;
+      width:100%; height:100%;
+      z-index:2; overflow:visible;
+      will-change:transform;
     }
   </style>
 </head>
@@ -55,35 +37,34 @@
   <div id="stage">
     <img id="bgLayer" src="./bg-base.png" alt="">
 
+    <!-- We still draw in 1000x1000 art space -->
     <svg id="headSvg"
          viewBox="0 0 1000 1000"
-         preserveAspectRatio="xMidYMin meet"
+         preserveAspectRatio="none"
          xmlns="http://www.w3.org/2000/svg"
          xmlns:xlink="http://www.w3.org/1999/xlink"
          aria-hidden="true">
       <defs>
-        <!-- userSpaceOnUse = reliable animated path reveal -->
         <clipPath id="dripClip" clipPathUnits="userSpaceOnUse">
           <path id="leftClip" d=""></path>
           <path id="rightClip" d=""></path>
         </clipPath>
       </defs>
 
-      <!-- One shared transform group => base + bleed stay perfectly locked -->
-      <g id="headGroup" transform="translate(0,0)">
-        <!-- Scaled head container -->
-        <g id="headScaleGroup" transform="translate(500 0) scale(1.22) translate(-500 0)">
+      <!-- cameraGroup applies locked-relative sizing/position -->
+      <g id="cameraGroup" transform="translate(0,0) scale(1)">
+        <!-- scrollGroup applies pre-lock vertical movement -->
+        <g id="scrollGroup" transform="translate(0,0)">
+          <!-- base and bleed ALWAYS identical geometry -->
           <image id="headBase"
-                 href="./head-base.png"
-                 xlink:href="./head-base.png"
+                 href="./head-base.png" xlink:href="./head-base.png"
                  x="0" y="0" width="1000" height="1000"
-                 preserveAspectRatio="xMidYMin meet"></image>
+                 preserveAspectRatio="none"></image>
 
           <image id="headBleed"
-                 href="./head-bleed.png"
-                 xlink:href="./head-bleed.png"
+                 href="./head-bleed.png" xlink:href="./head-bleed.png"
                  x="0" y="0" width="1000" height="1000"
-                 preserveAspectRatio="xMidYMin meet"
+                 preserveAspectRatio="none"
                  clip-path="url(#dripClip)"></image>
         </g>
       </g>
@@ -92,146 +73,138 @@
 
   <script>
     // =========================
-    // Tunables
+    // DESIGN-LOCK SETTINGS
     // =========================
+    const DESIGN_W = 1440; // pick the browser size you designed against
+    const DESIGN_H = 900;
 
-    // Height of white header area as fraction of viewport
-    const WHITE_HEADER_FRAC = 0.14;
+    // Head framing in "design viewport fractions"
+    const HEAD_TOP_FRAC_AT_REST = 0.14; // aligns to white header bottom
+    const HEAD_WIDTH_FRAC = 0.78;       // perceived size (bigger/smaller)
+    const HEAD_CENTER_X_FRAC = 0.50;    // horizontal lock
 
-    // Make head bigger (1.0 = original)
-    const HEAD_SCALE = 1.22;
-
-    // Bleed timing
+    // Scroll behavior
+    const WHITE_HEADER_FRAC = 0.14;     // bg/head scroll until header gone
     const BLEED_START_DELAY_VH = 0.00;
-    const WIPE_RANGE_VH = 1.35;   // duration of bleed scroll segment
+    const WIPE_RANGE_VH = 1.35;
 
-    // Bleed progression (0..1 in image space)
+    // Bleed geometry
     const BLEED_START_Y = 0.18;
-    const BLEED_TRAVEL  = 0.99;   // reaches near bottom => "all the way down"
-
-    // Eye positions (normalized x)
+    const BLEED_TRAVEL  = 0.99;
     const LEFT_INNER_X  = 0.495;
     const RIGHT_INNER_X = 0.53;
-
-    // Spread and drip style
-    const MAX_LEFT_WIDTH  = 0.30;
+    const MAX_LEFT_WIDTH = 0.30;
     const MAX_RIGHT_WIDTH = 0.30;
     const DRIP_HALF_WIDTH = 0.012;
-    const L_COUNT = 14;
-    const R_COUNT = 14;
+    const L_COUNT = 14, R_COUNT = 14;
 
-    // =========================
     const bgLayer = document.getElementById('bgLayer');
-    const headGroup = document.getElementById('headGroup');
-    const headScaleGroup = document.getElementById('headScaleGroup');
+    const cameraGroup = document.getElementById('cameraGroup');
+    const scrollGroup = document.getElementById('scrollGroup');
     const leftClip = document.getElementById('leftClip');
     const rightClip = document.getElementById('rightClip');
 
-    // apply tunable scale once
-    headScaleGroup.setAttribute(
-      'transform',
-      `translate(500 0) scale(${HEAD_SCALE}) translate(-500 0)`
-    );
+    const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+    const lerp = (a,b,t)=>a+(b-a)*t;
 
-    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-    const lerp  = (a, b, t) => a + (b - a) * t;
+    let smoothP = 0, lastTs = 0;
+    const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
+    const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
 
-    let smoothP = 0;
-    let lastTs = 0;
-
-    const leftLaneY  = Array.from({ length: L_COUNT + 1 }, () => 0);
-    const rightLaneY = Array.from({ length: R_COUNT + 1 }, () => 0);
-
-    // headSvg uses meet; rendered head height is min(vw, vh)
-    function getHeadRenderedHeightPx() {
-      const vw = window.innerWidth || 1;
-      const vh = window.innerHeight || 1;
-      return Math.min(vw, vh);
-    }
-
-    function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf) {
+    function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
       const xEnd = clamp(xStart + dir * width, 0, 1);
-      const t1 = t * 0.0013;
-      const t2 = t * 0.0020;
+      const t1 = t * 0.0013, t2 = t * 0.0020;
       let d = "";
-
-      for (let i = 0; i <= laneCount; i++) {
-        const u = i / laneCount;
-        const w = 1 - u;
-        const x = lerp(xStart, xEnd, u);
-
-        const baseDepth = y + w * 0.28 + (1 - w) * 0.10;
+      for(let i=0;i<=laneCount;i++){
+        const u = i/laneCount, w = 1-u, x = lerp(xStart,xEnd,u);
+        const baseDepth = y + w*0.28 + (1-w)*0.10;
         const wobble =
-          Math.sin(t1 + i * 1.05) * (0.006 + w * 0.007) +
-          Math.sin(t2 + i * 1.81) * 0.004;
-
+          Math.sin(t1 + i*1.05) * (0.006 + w*0.007) +
+          Math.sin(t2 + i*1.81) * 0.004;
         const targetY = clamp(baseDepth + wobble, 0, 1);
         const follow = 1 - Math.exp(-dt * 18);
         laneBuf[i] += (targetY - laneBuf[i]) * follow;
 
-        const yy = clamp(laneBuf[i], 0, 1);
-
-        // userSpaceOnUse => convert to 1000x1000 coords
-        const xl = clamp(x - DRIP_HALF_WIDTH, 0, 1) * 1000;
-        const xr = clamp(x + DRIP_HALF_WIDTH, 0, 1) * 1000;
-        const yb = yy * 1000;
-
+        const yy = clamp(laneBuf[i],0,1);
+        const xl = clamp(x-DRIP_HALF_WIDTH,0,1)*1000;
+        const xr = clamp(x+DRIP_HALF_WIDTH,0,1)*1000;
+        const yb = yy*1000;
         d += `M ${xl} 0 L ${xr} 0 L ${xr} ${yb} L ${xl} ${yb} Z `;
       }
-
       return d;
     }
 
-    function render(ts) {
+    function applyLockedCamera() {
+      const vw = window.innerWidth || 1;
+      const vh = window.innerHeight || 1;
+
+      // Build a stable "design camera" fit (contain)
+      const s = Math.min(vw / DESIGN_W, vh / DESIGN_H);
+      const camW = DESIGN_W * s;
+      const camH = DESIGN_H * s;
+      const camX = (vw - camW) * 0.5;
+      const camY = (vh - camH) * 0.5;
+
+      // Head target size inside design camera
+      const headPx = DESIGN_W * HEAD_WIDTH_FRAC * s;   // square art
+      const headScale = headPx / 1000;
+
+      // Head top anchored by design fraction within camera
+      const headTopPx = camY + (DESIGN_H * HEAD_TOP_FRAC_AT_REST * s);
+      const headLeftPx = camX + (DESIGN_W * HEAD_CENTER_X_FRAC * s) - (headPx * 0.5);
+
+      // Convert px->viewBox units because headSvg viewBox is 1000 in each axis mapped to vw/vh
+      const ux = (headLeftPx / vw) * 1000;
+      const uy = (headTopPx  / vh) * 1000;
+
+      cameraGroup.setAttribute('transform', `translate(${ux} ${uy}) scale(${headScale})`);
+      return { headRenderedPx: headPx };
+    }
+
+    function render(ts){
       const now = ts || performance.now();
-      const dt = lastTs ? Math.min(0.05, (now - lastTs) / 1000) : (1 / 60);
+      const dt = lastTs ? Math.min(0.05,(now-lastTs)/1000) : 1/60;
       lastTs = now;
 
       const scrollY = window.scrollY || window.pageYOffset || 0;
       const vh = window.innerHeight || 1;
 
-      // 1) Pre-lock scroll (until white header gone)
+      const { headRenderedPx } = applyLockedCamera();
+
+      // Pre-lock scroll distance (header exits)
       const lockPx = WHITE_HEADER_FRAC * vh;
-      const offsetPx = -Math.min(scrollY, lockPx);
+      const pre = -Math.min(scrollY, lockPx);
 
-      // bg scrolls then locks
-      bgLayer.style.transform = `translate3d(0, ${offsetPx}px, 0)`;
+      // BG scroll then lock
+      bgLayer.style.transform = `translate3d(0, ${pre}px, 0)`;
 
-      // head group scrolls then locks (same phase)
-      const headH = getHeadRenderedHeightPx();
-      const vbOffset = (offsetPx / headH) * 1000;
-      headGroup.setAttribute('transform', `translate(0 ${vbOffset})`);
+      // Head scroll then lock (convert px to local 1000-space using rendered head size)
+      const localY = (pre / headRenderedPx) * 1000;
+      scrollGroup.setAttribute('transform', `translate(0 ${localY})`);
 
-      // 2) Bleed starts after lock
-      const pastTrigger = Math.max(0, scrollY - lockPx - (BLEED_START_DELAY_VH * vh));
-      const rawP = clamp(pastTrigger / (WIPE_RANGE_VH * vh), 0, 1);
-
-      const follow = 1 - Math.exp(-dt * 7.0);
+      // Bleed starts after lock
+      const past = Math.max(0, scrollY - lockPx - (BLEED_START_DELAY_VH * vh));
+      const rawP = clamp(past / (WIPE_RANGE_VH * vh), 0, 1);
+      const follow = 1 - Math.exp(-dt * 7);
       smoothP += (rawP - smoothP) * follow;
 
-      const y = BLEED_START_Y + (BLEED_TRAVEL * smoothP);
+      const y = BLEED_START_Y + BLEED_TRAVEL * smoothP;
       const open = Math.pow(smoothP, 0.85);
 
-      const lw = MAX_LEFT_WIDTH * open;
-      const rw = MAX_RIGHT_WIDTH * open;
-
       leftClip.setAttribute('d', buildDripRects(
-        LEFT_INNER_X, -1, y, lw, now, L_COUNT, dt, leftLaneY
+        LEFT_INNER_X, -1, y, MAX_LEFT_WIDTH * open, now, L_COUNT, dt, leftLaneY
       ));
       rightClip.setAttribute('d', buildDripRects(
-        RIGHT_INNER_X, +1, y, rw, now, R_COUNT, dt, rightLaneY
+        RIGHT_INNER_X, +1, y, MAX_RIGHT_WIDTH * open, now, R_COUNT, dt, rightLaneY
       ));
     }
 
-    function tick(ts) {
-      render(ts);
-      requestAnimationFrame(tick);
-    }
+    function tick(ts){ render(ts); requestAnimationFrame(tick); }
 
     render(performance.now());
     requestAnimationFrame(tick);
-    window.addEventListener('scroll', () => render(performance.now()), { passive: true });
     window.addEventListener('resize', () => render(performance.now()));
+    window.addEventListener('scroll', () => render(performance.now()), { passive:true });
   </script>
 </body>
 </html>
