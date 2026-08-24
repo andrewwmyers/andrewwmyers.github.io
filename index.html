@@ -3,37 +3,43 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Floating Head</title>
+  <title>Hard-Locked Head</title>
   <style>
     html, body { margin:0; background:#000; overflow-x:hidden; }
     .scroll-runway { height:560vh; }
 
     #stage{
-      position:fixed; inset:0;
-      z-index:2; pointer-events:none;
-      overflow:hidden; background:#000;
+      position:fixed;
+      inset:0;
+      z-index:2;
+      pointer-events:none;
+      overflow:hidden;
+      background:#000;
     }
 
     #bgLayer{
-      position:absolute; inset:0;
-      width:100%; height:100%;
-      object-fit:cover; object-position:center top;
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      object-position:center top;
       z-index:1;
       will-change:transform;
-      user-select:none; -webkit-user-drag:none;
+      user-select:none;
+      -webkit-user-drag:none;
     }
 
-    /* Hard pin: center + fixed top in CSS px */
+    /* HARD LOCK: never changed after init */
     #headShell{
       position:absolute;
       left:50%;
-      top:0;                 /* set by JS once */
-      width:1000px;          /* set by JS once */
-      height:1000px;
+      top:120px;              /* overwritten once at init */
+      width:980px;            /* overwritten once at init */
+      height:980px;           /* overwritten once at init */
       transform:translateX(-50%);
       transform-origin:top center;
       z-index:2;
-      will-change:transform;
     }
 
     #headSvg{
@@ -64,7 +70,6 @@
           </clipPath>
         </defs>
 
-        <!-- Base and bleed locked in same group -->
         <g id="headScroll" transform="translate(0,0)">
           <image href="./head-base.png" xlink:href="./head-base.png"
                  x="0" y="0" width="1000" height="1000"></image>
@@ -77,19 +82,12 @@
   </div>
 
   <script>
-    // ----------------------------
-    // One-time layout constants
-    // ----------------------------
+    // ===== one-time calibration ONLY =====
     const WHITE_HEADER_FRAC = 0.14;
-    const HEAD_WIDTH_FRAC   = 0.92; // bigger
-    const HEAD_MIN_PX       = 700;
-    const HEAD_MAX_PX       = 1500;
-
-    // Bleed timing
+    const HEAD_SIZE_PX = 1080; // fixed size, never changes
     const BLEED_START_DELAY_VH = 0.00;
-    const WIPE_RANGE_VH        = 1.35;
+    const WIPE_RANGE_VH = 1.35;
 
-    // Bleed geometry
     const BLEED_START_Y = 0.18;
     const BLEED_TRAVEL  = 0.99;
     const LEFT_INNER_X  = 0.495;
@@ -99,54 +97,48 @@
     const DRIP_HALF_WIDTH = 0.012;
     const L_COUNT = 14, R_COUNT = 14;
 
-    const bgLayer   = document.getElementById('bgLayer');
     const headShell = document.getElementById('headShell');
-    const headScroll= document.getElementById('headScroll');
-    const leftClip  = document.getElementById('leftClip');
+    const bgLayer = document.getElementById('bgLayer');
+    const headScroll = document.getElementById('headScroll');
+    const leftClip = document.getElementById('leftClip');
     const rightClip = document.getElementById('rightClip');
 
-    const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
-    const lerp  = (a,b,t)=>a+(b-a)*t;
-
-    let smoothP = 0, lastTs = 0;
-    const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
-    const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
-
-    // ===== Freeze once (this is the key) =====
-    // These DO NOT update on wheel zoom.
-    const initW = document.documentElement.clientWidth || window.innerWidth || 1;
+    // Freeze against INITIAL viewport only
     const initH = document.documentElement.clientHeight || window.innerHeight || 1;
+    const frozenTopPx = Math.round(initH * WHITE_HEADER_FRAC);
+    const frozenScale = HEAD_SIZE_PX / 1000;
+    const frozenLockPx = frozenTopPx;
 
-    const frozenTopPx = WHITE_HEADER_FRAC * initH; // pin below white header
-    const frozenHeadPx = clamp(initW * HEAD_WIDTH_FRAC, HEAD_MIN_PX, HEAD_MAX_PX);
-    const frozenScale = frozenHeadPx / 1000;
-
-    // Apply fixed pin + size once
+    // Apply fixed anchor exactly once
     headShell.style.top = `${frozenTopPx}px`;
     headShell.style.width = `1000px`;
     headShell.style.height = `1000px`;
     headShell.style.transform = `translateX(-50%) scale(${frozenScale})`;
 
+    const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+    const lerp = (a,b,t)=>a+(b-a)*t;
+    let smoothP = 0, lastTs = 0;
+    const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
+    const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
+
     function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
       const xEnd = clamp(xStart + dir * width, 0, 1);
       const t1 = t * 0.0013, t2 = t * 0.0020;
       let d = "";
-
       for(let i=0;i<=laneCount;i++){
-        const u = i/laneCount, w = 1-u, x = lerp(xStart,xEnd,u);
+        const u=i/laneCount, w=1-u, x=lerp(xStart,xEnd,u);
         const baseDepth = y + w*0.28 + (1-w)*0.10;
         const wobble =
-          Math.sin(t1 + i*1.05) * (0.006 + w*0.007) +
-          Math.sin(t2 + i*1.81) * 0.004;
-
+          Math.sin(t1 + i*1.05)*(0.006 + w*0.007) +
+          Math.sin(t2 + i*1.81)*0.004;
         const targetY = clamp(baseDepth + wobble, 0, 1);
-        const follow = 1 - Math.exp(-dt * 18);
+        const follow = 1 - Math.exp(-dt*18);
         laneBuf[i] += (targetY - laneBuf[i]) * follow;
 
         const yy = clamp(laneBuf[i],0,1);
-        const xl = clamp(x-DRIP_HALF_WIDTH,0,1) * 1000;
-        const xr = clamp(x+DRIP_HALF_WIDTH,0,1) * 1000;
-        const yb = yy * 1000;
+        const xl = clamp(x-DRIP_HALF_WIDTH,0,1)*1000;
+        const xr = clamp(x+DRIP_HALF_WIDTH,0,1)*1000;
+        const yb = yy*1000;
         d += `M ${xl} 0 L ${xr} 0 L ${xr} ${yb} L ${xl} ${yb} Z `;
       }
       return d;
@@ -154,26 +146,20 @@
 
     function render(ts){
       const now = ts || performance.now();
-      const dt = lastTs ? Math.min(0.05, (now-lastTs)/1000) : 1/60;
+      const dt = lastTs ? Math.min(0.05,(now-lastTs)/1000) : 1/60;
       lastTs = now;
 
       const scrollY = window.scrollY || window.pageYOffset || 0;
       const vh = window.innerHeight || initH;
 
-      // Scroll until white header gone (using frozen lock)
-      const lockPx = frozenTopPx;
-      const offsetPx = -Math.min(scrollY, lockPx);
-
+      // Only animate content scroll, NEVER anchor/size
+      const offsetPx = -Math.min(scrollY, frozenLockPx);
       bgLayer.style.transform = `translate3d(0, ${offsetPx}px, 0)`;
-
-      // Move head art in local units; shell pin/scale remains fixed
       headScroll.setAttribute('transform', `translate(0 ${offsetPx / frozenScale})`);
 
-      // Bleed reveal after lock
-      const past = Math.max(0, scrollY - lockPx - (BLEED_START_DELAY_VH * vh));
+      const past = Math.max(0, scrollY - frozenLockPx - (BLEED_START_DELAY_VH * vh));
       const rawP = clamp(past / (WIPE_RANGE_VH * vh), 0, 1);
-
-      const follow = 1 - Math.exp(-dt * 7.0);
+      const follow = 1 - Math.exp(-dt * 7);
       smoothP += (rawP - smoothP) * follow;
 
       const y = BLEED_START_Y + BLEED_TRAVEL * smoothP;
@@ -187,18 +173,13 @@
       ));
     }
 
-    function tick(ts){
-      render(ts);
-      requestAnimationFrame(tick);
-    }
-
+    function tick(ts){ render(ts); requestAnimationFrame(tick); }
     render(performance.now());
     requestAnimationFrame(tick);
 
     window.addEventListener('scroll', () => render(performance.now()), { passive:true });
 
-    // Intentionally NO resize handlers:
-    // prevents ctrl+wheel zoom from changing head position/size.
+    // Intentionally no resize/viewport listeners.
   </script>
 </body>
 </html>
