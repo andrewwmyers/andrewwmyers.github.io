@@ -16,13 +16,14 @@
     #stage {
       position: fixed;
       inset: 0;
-      pointer-events: none;
       z-index: 1;
+      pointer-events: none;
       overflow: hidden;
       background: #000;
     }
 
-    .layer {
+    /* Background stays full-bleed */
+    #bgLayer {
       position: absolute;
       inset: 0;
       width: 100%;
@@ -32,159 +33,27 @@
       user-select: none;
       -webkit-user-drag: none;
       will-change: transform;
+      z-index: 1;
     }
 
-    #bgLayer { z-index: 1; }
-    #headBaseLayer { z-index: 2; }
-
-    #bleedSvg {
+    /* Single SVG engine for BOTH head images = perfect alignment */
+    #headSvg {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
-      z-index: 3;
+      z-index: 2;
+      will-change: transform;
     }
-
-    /* debug toggle: set to 0 when done */
-    #bleedSvg.debugVisible { opacity: 1; }
   </style>
 </head>
 <body>
   <div class="scroll-runway"></div>
 
   <div id="stage">
-    <img id="bgLayer" class="layer" src="./bg-base.png" alt="">
-    <img id="headBaseLayer" class="layer" src="./head-base.png" alt="">
+    <img id="bgLayer" src="./bg-base.png" alt="">
 
-    <svg id="bleedSvg" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
+    <svg id="headSvg" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
       <defs>
-        <clipPath id="dripClip" clipPathUnits="userSpaceOnUse">
-          <path id="leftClip" d=""></path>
-          <path id="rightClip" d=""></path>
-        </clipPath>
-      </defs>
-
-      <g id="bleedGroup" transform="translate(0,0)">
-        <image id="bleedImage"
-               href="./head-bleed.png"
-               x="0" y="0" width="1000" height="1000"
-               preserveAspectRatio="xMidYMin slice"
-               clip-path="url(#dripClip)"></image>
-      </g>
-    </svg>
-  </div>
-
-  <script>
-    // Tunables
-    const LOCK_VH = 0.78;
-    const BLEED_START_DELAY_VH = 0.00;
-    const WIPE_RANGE_VH = 1.10; // faster/more obvious than 1.45
-
-    const BLEED_START_Y = 0.18;
-    const BLEED_TRAVEL  = 0.98;
-
-    const LEFT_INNER_X  = 0.495;
-    const RIGHT_INNER_X = 0.53;
-
-    const MAX_LEFT_WIDTH  = 0.28;
-    const MAX_RIGHT_WIDTH = 0.28;
-    const DRIP_HALF_WIDTH = 0.012;
-
-    const L_COUNT = 14;
-    const R_COUNT = 14;
-
-    const bgLayer       = document.getElementById('bgLayer');
-    const headBaseLayer = document.getElementById('headBaseLayer');
-    const bleedGroup    = document.getElementById('bleedGroup');
-    const leftClip      = document.getElementById('leftClip');
-    const rightClip     = document.getElementById('rightClip');
-
-    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-    const lerp  = (a, b, t) => a + (b - a) * t;
-
-    let smoothP = 0;
-    let lastTs = 0;
-
-    const leftLaneY  = Array.from({ length: L_COUNT + 1 }, () => 0);
-    const rightLaneY = Array.from({ length: R_COUNT + 1 }, () => 0);
-
-    function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf) {
-      const xEnd = clamp(xStart + dir * width, 0, 1);
-      const t1 = t * 0.0013;
-      const t2 = t * 0.0020;
-      let d = "";
-
-      for (let i = 0; i <= laneCount; i++) {
-        const u = i / laneCount;
-        const w = 1 - u;
-        const x = lerp(xStart, xEnd, u);
-
-        const baseDepth = y + w * 0.28 + (1 - w) * 0.10;
-        const wobble =
-          Math.sin(t1 + i * 1.05) * (0.006 + w * 0.007) +
-          Math.sin(t2 + i * 1.81) * 0.004;
-
-        const targetY = clamp(baseDepth + wobble, 0, 1);
-        const follow = 1 - Math.exp(-dt * 18);
-        laneBuf[i] += (targetY - laneBuf[i]) * follow;
-
-        const yy = clamp(laneBuf[i], 0, 1);
-        const xl = clamp(x - DRIP_HALF_WIDTH, 0, 1) * 1000;
-        const xr = clamp(x + DRIP_HALF_WIDTH, 0, 1) * 1000;
-        const yb = yy * 1000;
-
-        d += `M ${xl} 0 L ${xr} 0 L ${xr} ${yb} L ${xl} ${yb} Z `;
-      }
-
-      return d;
-    }
-
-    function render(ts) {
-      const now = ts || performance.now();
-      const dt = lastTs ? Math.min(0.05, (now - lastTs) / 1000) : 1/60;
-      lastTs = now;
-
-      const scrollY = window.scrollY || window.pageYOffset || 0;
-      const vh = window.innerHeight || 1;
-
-      // Shared move then lock
-      const lockPx = LOCK_VH * vh;
-      const offsetPx = -Math.min(scrollY, lockPx);
-
-      const t3d = `translate3d(0, ${offsetPx}px, 0)`;
-      bgLayer.style.transform = t3d;
-      headBaseLayer.style.transform = t3d;
-
-      const vbOffset = (offsetPx / vh) * 1000;
-      bleedGroup.setAttribute('transform', `translate(0 ${vbOffset})`);
-
-      // Bleed progress
-      const pastTrigger = Math.max(0, scrollY - lockPx - (BLEED_START_DELAY_VH * vh));
-      const rawP = clamp(pastTrigger / (WIPE_RANGE_VH * vh), 0, 1);
-
-      const pFollow = 1 - Math.exp(-dt * 7.0);
-      smoothP += (rawP - smoothP) * pFollow;
-
-      const y = BLEED_START_Y + BLEED_TRAVEL * smoothP;
-      const open = Math.pow(smoothP, 0.85);
-
-      const lw = MAX_LEFT_WIDTH * open;
-      const rw = MAX_RIGHT_WIDTH * open;
-
-      leftClip.setAttribute('d', buildDripRects(LEFT_INNER_X, -1, y, lw, now, L_COUNT, dt, leftLaneY));
-      rightClip.setAttribute('d', buildDripRects(RIGHT_INNER_X, +1, y, rw, now, R_COUNT, dt, rightLaneY));
-    }
-
-    function tick(ts) {
-      render(ts);
-      requestAnimationFrame(tick);
-    }
-
-    // Force first paint so clip paths are initialized immediately
-    render(performance.now());
-    requestAnimationFrame(tick);
-    window.addEventListener('scroll', () => render(performance.now()), { passive: true });
-    window.addEventListener('resize', () => render(performance.now()));
-  </script>
-</body>
-</html>
+        <clipPath id="dripClip" clipPathUnits="userSpaceOn*
+
