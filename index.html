@@ -9,10 +9,9 @@
   </style>
 </head>
 <body>
-  <!-- Longer runway so we never run out of page before bleed completes -->
+  <!-- Runway long enough so bleed always finishes -->
   <div style="height:520vh;"></div>
 
-  <!-- Unified scene: base + bleed in same SVG (always perfectly locked) -->
   <svg id="scene"
        viewBox="0 0 1000 1000"
        preserveAspectRatio="xMidYMin slice"
@@ -25,13 +24,11 @@
     </defs>
 
     <g id="imgGroup" transform="translate(0,0)">
-      <image id="baseImg"
-             href="./base.png"
+      <image href="./base.png"
              x="0" y="0" width="1000" height="1000"
              preserveAspectRatio="xMidYMin slice"></image>
 
-      <image id="bleedImg"
-             href="./bleed.png"
+      <image href="./bleed.png"
              x="0" y="0" width="1000" height="1000"
              preserveAspectRatio="xMidYMin slice"
              clip-path="url(#dripClip)"></image>
@@ -39,20 +36,18 @@
   </svg>
 
   <script>
-    // --------------------------------
-    // MAIN GOAL: bleed completes before page ends
-    // --------------------------------
+    // ============================
+    // DEVICE-CONSISTENT LOCK
+    // ============================
+    // Lock after this fraction of viewport height scrolled
+    // (same interaction feel across browser sizes)
+    const LOCK_VH = 0.78;
 
-    // Confirmed correct by you
-    const WHITE_HEADER_FRAC = 0.14;
-
-    // Start bleed immediately after header lock
+    // Bleed timing
     const BLEED_START_DELAY_VH = 0.00;
+    const WIPE_RANGE_VH = 1.45; // smaller = faster finish
 
-    // Smaller = faster completion (so it finishes before page end)
-    const WIPE_RANGE_VH = 1.45;
-
-    // Bleed shape / motion
+    // Bleed shape
     const BLEED_START_Y = 0.20;
     const BLEED_TRAVEL  = 0.94;
 
@@ -60,14 +55,11 @@
     const LEFT_INNER_X  = 0.495;
     const RIGHT_INNER_X = 0.53;
 
-    // Spread from inner eye edges
+    // Spread + thickness
     const MAX_LEFT_WIDTH  = 0.24;
     const MAX_RIGHT_WIDTH = 0.24;
-
-    // Thickness of each drip ribbon
     const DRIP_HALF_WIDTH = 0.010;
 
-    // --------------------------------
     const imgGroup = document.getElementById('imgGroup');
     const leftClip = document.getElementById('leftClip');
     const rightClip = document.getElementById('rightClip');
@@ -80,19 +72,12 @@
     const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
     const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
 
-    function getRenderedImageHeightPx() {
-      const vw = window.innerWidth || 1;
-      const vh = window.innerHeight || 1;
-      const scale = Math.max(vw / 1000, vh / 1000); // slice
-      return 1000 * scale;
-    }
-
     function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
       const xEnd = clamp(xStart + dir * width, 0, 1);
       const t1 = t * 0.0013, t2 = t * 0.0020;
       let d = "";
 
-      for(let i=0;i<=laneCount;i++){
+      for (let i = 0; i <= laneCount; i++) {
         const u = i / laneCount;
         const w = 1 - u;
         const x = lerp(xStart, xEnd, u);
@@ -113,28 +98,28 @@
 
         d += `M ${xl} 0 L ${xr} 0 L ${xr} ${yb} L ${xl} ${yb} Z `;
       }
+
       return d;
     }
 
     let lastTs = 0;
     function tick(ts){
-      if(!lastTs) lastTs = ts;
+      if (!lastTs) lastTs = ts;
       const dt = Math.min(0.05, (ts - lastTs) / 1000);
       lastTs = ts;
 
       const scrollY = window.scrollY || window.pageYOffset || 0;
       const vh = window.innerHeight || 1;
 
-      // Lock point based on real rendered image size
-      const renderedImgH = getRenderedImageHeightPx();
-      const lockPx = renderedImgH * WHITE_HEADER_FRAC;
+      // Lock distance in px from viewport fraction
+      const lockPx = LOCK_VH * vh;
 
-      // Phase 1: scroll image upward until white header is gone, then lock
+      // Phase 1: move up until lock, then freeze
       const bgOffsetPx = -Math.min(scrollY, lockPx);
-      const vbOffset = (bgOffsetPx / vh) * 1000;
+      const vbOffset = (bgOffsetPx / vh) * 1000; // px -> viewBox units
       imgGroup.setAttribute('transform', `translate(0 ${vbOffset})`);
 
-      // Phase 2: bleed reveal
+      // Phase 2: bleed
       const bleedDelayPx = BLEED_START_DELAY_VH * vh;
       const wipeRangePx = WIPE_RANGE_VH * vh;
 
