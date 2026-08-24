@@ -12,120 +12,51 @@
 
   <!-- Base -->
   <div id="baseLayer" style="
-    position:fixed; inset:0; z-index:0; pointer-events:none;
+    position:fixed;
+    inset:0;
+    z-index:0;
+    pointer-events:none;
     background-image:url('./base.png');
     background-repeat:no-repeat;
     background-size:cover;
     background-position:center 0px;
   "></div>
 
-  <!-- Bleed (must stay perfectly aligned with base) -->
+  <!-- Bleed (locked to same transform as base) -->
   <div id="bleedLayer" style="
-    position:fixed; inset:0; z-index:1; pointer-events:none;
+    position:fixed;
+    inset:0;
+    z-index:1;
+    pointer-events:none;
     background-image:url('./bleed.png');
     background-repeat:no-repeat;
     background-size:cover;
     background-position:center 0px;
+
     -webkit-mask:url(#dripMask);
     mask:url(#dripMask);
     -webkit-mask-repeat:no-repeat;
     mask-repeat:no-repeat;
   "></div>
 
+  <!-- Hidden SVG defs -->
   <svg width="0" height="0" style="position:absolute">
     <defs>
       <mask id="dripMask" maskUnits="objectBoundingBox" maskContentUnits="objectBoundingBox">
+        <!-- Hide all bleed by default -->
         <rect x="0" y="0" width="1" height="1" fill="black"></rect>
-        <path id="leftDrips"  d="" fill="none" stroke="white" stroke-linecap="round" stroke-width="0.018"/>
-        <path id="rightDrips" d="" fill="none" stroke="white" stroke-linecap="round" stroke-width="0.018"/>
-      </mask>
-    </defs>
-  </svg>
 
-  <script>
-    const HEADER_SCROLL_PX = 700;
-    const WIPE_RANGE = 1800;
-
-    const LEFT_INNER_X  = 0.495;
-    const RIGHT_INNER_X = 0.53;
-    const MAX_LEFT_WIDTH = 0.24;
-    const MAX_RIGHT_WIDTH = 0.24;
-
-    const baseLayer = document.getElementById('baseLayer');
-    const bleedLayer = document.getElementById('bleedLayer');
-    const leftDrips = document.getElementById('leftDrips');
-    const rightDrips = document.getElementById('rightDrips');
-
-    const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
-    const lerp = (a,b,t)=>a+(b-a)*t;
-    const q = (v,s=0.0012)=>Math.round(v/s)*s;
-
-    let smoothP = 0;
-    const L_COUNT = 12, R_COUNT = 12;
-    const leftLaneY = Array.from({length:L_COUNT+1},()=>0);
-    const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
-
-    function buildDrips(xStart, dir, y, width, t, laneCount, dt, laneBuf) {
-      const xEnd = clamp(xStart + dir * width, 0, 1);
-      let d = "";
-      const t1 = t * 0.0013, t2 = t * 0.0020;
-
-      for (let i=0;i<=laneCount;i++) {
-        const u = i/laneCount;
-        const x = lerp(xStart, xEnd, u);
-        const w = 1-u;
-
-        const baseDepth = y + w*0.28 + (1-w)*0.10;
-        const wobble =
-          Math.sin(t1 + i*1.05)*(0.005 + w*0.006) +
-          Math.sin(t2 + i*1.81)*0.0035;
-
-        const targetY = clamp(baseDepth + wobble, 0, 1);
-        const follow = 1 - Math.exp(-dt*18);
-        laneBuf[i] += (targetY - laneBuf[i]) * follow;
-
-        d += `M ${q(x,0.0009)} 0 L ${q(x,0.0009)} ${q(laneBuf[i],0.0012)} `;
-      }
-      return d;
-    }
-
-    let lastTs = 0;
-    function tick(ts){
-      if(!lastTs) lastTs = ts;
-      const dt = Math.min(0.05,(ts-lastTs)/1000);
-      lastTs = ts;
-
-      const scrollY = window.scrollY || window.pageYOffset || 0;
-
-      // Shared scroll offset (locks base+bleed together)
-      const headerProgress = clamp(scrollY / HEADER_SCROLL_PX, 0, 1);
-      const bgOffsetY = -HEADER_SCROLL_PX * headerProgress;
-
-      // APPLY SAME OFFSET TO BOTH LAYERS
-      const pos = `center ${bgOffsetY}px`;
-      baseLayer.style.backgroundPosition = pos;
-      bleedLayer.style.backgroundPosition = pos;
-
-      // Bleed reveal starts after header hidden
-      const pastTrigger = Math.max(0, scrollY - HEADER_SCROLL_PX);
-      const rawP = clamp(pastTrigger / WIPE_RANGE, 0, 1);
-      const pFollow = 1 - Math.exp(-dt*7.0);
-      smoothP += (rawP - smoothP) * pFollow;
-
-      const BLEED_START_Y = 0.05;   // raise/lower visible starting point
-      const BLEED_TRAVEL  = 0.94;   // total downward travel
-      const y = BLEED_START_Y + (BLEED_TRAVEL * smoothP);
-      const eyeOpen = Math.pow(smoothP,0.85);
-      const leftWidth = MAX_LEFT_WIDTH * eyeOpen;
-      const rightWidth = MAX_RIGHT_WIDTH * eyeOpen;
-
-      leftDrips.setAttribute('d', buildDrips(LEFT_INNER_X,-1,y,leftWidth,ts,L_COUNT,dt,leftLaneY));
-      rightDrips.setAttribute('d', buildDrips(RIGHT_INNER_X,+1,y,rightWidth,ts,R_COUNT,dt,rightLaneY));
-
-      requestAnimationFrame(tick);
-    }
-
-    requestAnimationFrame(tick);
-  </script>
-</body>
-</html>
+        <!-- Reveal only drip lines -->
+        <path id="leftDrips"
+              d=""
+              fill="none"
+              stroke="white"
+              stroke-linecap="round"
+              stroke-width="0.018" />
+        <path id="rightDrips"
+              d=""
+              fill="none"
+              stroke="white"
+              stroke-linecap="round"
+              stroke-width="0
+
