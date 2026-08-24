@@ -7,25 +7,39 @@
 </head>
 <body style="margin:0;background:#000;overflow-x:hidden;">
 
-  <!-- Scroll spacer: gives real page scroll distance -->
-  <div style="height:320vh;"></div>
+  <!-- Phase 1: scrolling hero (moves up naturally) -->
+  <section id="scrollHero" style="
+    position:relative;
+    height:360vh; /* total scroll runway */
+    background:#000;
+  ">
+    <!-- This image scrolls with page, so header can move off screen -->
+    <div id="scrollBase" style="
+      position:sticky;
+      top:0;
+      height:100vh;
+      background:url('./base.png') center top / cover no-repeat;
+      z-index:0;
+    "></div>
+  </section>
 
-  <!-- Base image stays static -->
-  <div style="
+  <!-- Phase 2: fixed locked scene (turned on after trigger) -->
+  <div id="fixedBase" style="
     position:fixed;
     inset:0;
     background:url('./base.png') center top / cover no-repeat;
-    z-index:0;
+    z-index:5;
+    opacity:0;
     pointer-events:none;
   "></div>
 
-  <!-- Bleed layer -->
   <div id="bleedLayer" style="
     position:fixed;
     inset:0;
-    z-index:1;
+    z-index:6;
     pointer-events:none;
     background:url('./bleed.png') center top / cover no-repeat;
+    opacity:1;
     clip-path:url(#dualEyeReveal);
     -webkit-clip-path:url(#dualEyeReveal);
   "></div>
@@ -40,21 +54,15 @@
   </svg>
 
   <script>
-    // Scroll behavior:
-    // 1) User scrolls until white header area is gone
-    // 2) Base remains static
-    // 3) Bleed animation starts
+    // ---- Behavior tuning ----
+    const HEADER_HEIGHT_PX = 230; // scroll amount to hide white header
+    const WIPE_RANGE = 1800;      // bleed reveal distance after trigger
 
-    // Tune this to your image's white header height
-    const HEADER_HEIGHT_PX = 230;
-
-    // How much scroll distance for full bleed reveal after trigger
-    const WIPE_RANGE = 1800;
-
-    // Keep your requested alignment
+    // Your requested alignment
     const LEFT_INNER_X  = 0.495;
     const RIGHT_INNER_X = 0.53;
 
+    const fixedBase = document.getElementById('fixedBase');
     const leftPath = document.getElementById('leftEyePath');
     const rightPath = document.getElementById('rightEyePath');
 
@@ -67,8 +75,8 @@
     const L_COUNT = 10;
     const R_COUNT = 10;
 
-    const leftPulse  = Array.from({length:L_COUNT}, (_,i)=>({amp:0}));
-    const rightPulse = Array.from({length:R_COUNT}, (_,i)=>({amp:0}));
+    const leftPulse  = Array.from({length:L_COUNT}, () => ({amp:0}));
+    const rightPulse = Array.from({length:R_COUNT}, () => ({amp:0}));
 
     const leftLaneY  = Array.from({length:L_COUNT+1}, () => 0);
     const rightLaneY = Array.from({length:R_COUNT+1}, () => 0);
@@ -136,14 +144,20 @@
 
       const scrollY = window.scrollY || window.pageYOffset || 0;
 
-      // Animation starts only AFTER white header scrolls away
+      // Phase switch:
+      // before trigger: scrolling hero visible
+      // after trigger: fixedBase fades in and locks scene
       const pastTrigger = Math.max(0, scrollY - HEADER_HEIGHT_PX);
+      const phase2 = pastTrigger > 0;
+
+      fixedBase.style.opacity = phase2 ? "1" : "0";
+
+      // bleed progress only in phase 2
       const rawP = clamp(pastTrigger / WIPE_RANGE, 0, 1);
 
       const follow = 1 - Math.exp(-dt * 7.0);
       smoothP += (rawP - smoothP) * follow;
 
-      // drip edge travels from above viewport to below
       const y = -0.30 + (1.42 * smoothP);
 
       const maxLeftWidth  = 0.24;
