@@ -3,53 +3,56 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hard-Locked Composite</title>
+  <title>Pinned Head + Bleed</title>
   <style>
-    html, body { margin:0; background:#000; overflow-x:hidden; }
-    .scroll-runway { height:560vh; }
-
-    #stage{
-      position:fixed; inset:0;
-      z-index:2; pointer-events:none;
-      overflow:hidden; background:#000;
+    html, body {
+      margin: 0;
+      background: #000;
+      overflow-x: hidden;
     }
 
-    /* Frozen background frame */
-    #bgFrame{
-      position:absolute;
-      left:0; top:0;
-      width:100px; height:100px;   /* set once in JS */
-      overflow:hidden;
-      z-index:1;
-      will-change:transform;
-      transform-origin:top left;
+    .scroll-runway { height: 560vh; }
+
+    #stage {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      overflow: hidden;
+      background: #000;
     }
 
-    #bgLayer{
-      position:absolute;
-      left:0; top:0;
-      width:100%; height:100%;
-      object-fit:fill;             /* we control exact frame size ourselves */
-      user-select:none; -webkit-user-drag:none;
+    #bgLayer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+      z-index: 1;
+      will-change: transform;
+      user-select: none;
+      -webkit-user-drag: none;
     }
 
-    /* Frozen head anchor */
-    #headShell{
-      position:absolute;
-      left:50%;
-      top:0;
-      width:1000px;
-      height:1000px;
-      transform:translateX(-50%);
-      transform-origin:top center;
-      z-index:2;
-      will-change:transform;
+    /* Absolute horizontal lock */
+    #headShell {
+      position: absolute;
+      left: 50%;
+      top: 0; /* set once in JS */
+      width: 1000px;
+      height: 1000px;
+      transform: translateX(-50%);
+      transform-origin: top center;
+      z-index: 2;
+      will-change: transform;
     }
 
-    #headSvg{
-      width:100%; height:100%;
-      display:block;
-      overflow:visible;
+    #headSvg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      overflow: visible;
     }
   </style>
 </head>
@@ -57,14 +60,12 @@
   <div class="scroll-runway"></div>
 
   <div id="stage">
-    <div id="bgFrame">
-      <img id="bgLayer" src="./bg-base.png" alt="">
-    </div>
+    <img id="bgLayer" src="./bg-base.png" alt="" />
 
     <div id="headShell">
       <svg id="headSvg"
            viewBox="0 0 1000 1000"
-           preserveAspectRatio="none"
+           preserveAspectRatio="xMidYMin meet"
            xmlns="http://www.w3.org/2000/svg"
            xmlns:xlink="http://www.w3.org/1999/xlink"
            aria-hidden="true">
@@ -76,10 +77,15 @@
         </defs>
 
         <g id="headScroll" transform="translate(0,0)">
-          <image href="./head-base.png" xlink:href="./head-base.png"
-                 x="0" y="0" width="1000" height="1000"></image>
-          <image href="./head-bleed.png" xlink:href="./head-bleed.png"
+          <image id="headBase"
+                 href="./head-base.png" xlink:href="./head-base.png"
                  x="0" y="0" width="1000" height="1000"
+                 preserveAspectRatio="xMidYMin meet"></image>
+
+          <image id="headBleed"
+                 href="./head-bleed.png" xlink:href="./head-bleed.png"
+                 x="0" y="0" width="1000" height="1000"
+                 preserveAspectRatio="xMidYMin meet"
                  clip-path="url(#dripClip)"></image>
         </g>
       </svg>
@@ -87,23 +93,65 @@
   </div>
 
   <script>
-    // ===== Frozen-at-init layout =====
+    // ===== Tunables =====
     const WHITE_HEADER_FRAC = 0.14;
 
-    // Head size fixed at init
+    // Bigger, fixed-at-init head size
     const HEAD_WIDTH_FRAC = 0.92;
-    const HEAD_MIN_PX = 700;
-    const HEAD_MAX_PX = 1500;
+    const HEAD_MIN_PX = 760;
+    const HEAD_MAX_PX = 1400;
 
-    // Background "cover" solved manually with frozen viewport
-    // (compute once using init viewport, never recompute)
-
-    // Bleed timing/shape
+    // Bleed timing
     const BLEED_START_DELAY_VH = 0.00;
     const WIPE_RANGE_VH = 1.35;
+
+    // Bleed shape
     const BLEED_START_Y = 0.18;
     const BLEED_TRAVEL  = 0.99;
     const LEFT_INNER_X  = 0.495;
     const RIGHT_INNER_X = 0.53;
-    const MAX_LEFT_WIDTH  =*
+    const MAX_LEFT_WIDTH  = 0.30;
+    const MAX_RIGHT_WIDTH = 0.30;
+    const DRIP_HALF_WIDTH = 0.012;
+    const L_COUNT = 14, R_COUNT = 14;
+
+    const bgLayer = document.getElementById('bgLayer');
+    const headShell = document.getElementById('headShell');
+    const headScroll = document.getElementById('headScroll');
+    const leftClip = document.getElementById('leftClip');
+    const rightClip = document.getElementById('rightClip');
+
+    const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+    const lerp  = (a,b,t)=>a+(b-a)*t;
+
+    let smoothP = 0;
+    let lastTs = 0;
+    const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
+    const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
+
+    // ---- Freeze anchor and scale once ----
+    const initW = document.documentElement.clientWidth || window.innerWidth || 1;
+    const initH = document.documentElement.clientHeight || window.innerHeight || 1;
+
+    const frozenTopPx = WHITE_HEADER_FRAC * initH; // pin to white-header bottom
+    const frozenHeadPx = clamp(initW * HEAD_WIDTH_FRAC, HEAD_MIN_PX, HEAD_MAX_PX);
+    const frozenScale = frozenHeadPx / 1000;
+    const frozenLockPx = frozenTopPx;
+
+    headShell.style.top = `${frozenTopPx}px`;
+    headShell.style.transform = `translateX(-50%) scale(${frozenScale})`;
+
+    function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
+      const xEnd = clamp(xStart + dir * width, 0, 1);
+      const t1 = t * 0.0013;
+      const t2 = t * 0.0020;
+      let d = "";
+
+      for(let i=0; i<=laneCount; i++){
+        const u = i/laneCount;
+        const w = 1-u;
+        const x = lerp(xStart, xEnd, u);
+
+        const baseDepth = y + w*0.28 + (1-w)*0.10;
+        const
 
