@@ -15,7 +15,7 @@
     z-index:0;
   "></div>
 
-  <!-- Bleed image (masked by left + right eye drips) -->
+  <!-- Bleed image -->
   <div id="bleedLayer" style="
     position:fixed;
     inset:0;
@@ -26,7 +26,6 @@
     -webkit-clip-path:url(#dualEyeReveal);
   "></div>
 
-  <!-- SVG mask geometry -->
   <svg width="0" height="0" style="position:absolute">
     <defs>
       <clipPath id="dualEyeReveal" clipPathUnits="objectBoundingBox">
@@ -40,78 +39,84 @@
     const HEADER_HEIGHT = 230;
     const WIPE_RANGE = 1800;
 
-    // Approx eye inner-edge centers in normalized screen coords.
-    // Tweak these if your eyes are positioned differently in the image.
-    const LEFT_INNER_X  = 0.495; // inner edge of left eye (near nose)
-    const RIGHT_INNER_X = 0.53; // inner edge of right eye (near nose)
+    // Keep your requested update:
+    const LEFT_INNER_X  = 0.495;
+    const RIGHT_INNER_X = 0.53;
 
     const leftPath = document.getElementById('leftEyePath');
     const rightPath = document.getElementById('rightEyePath');
 
     const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
     const lerp = (a,b,t) => a + (b-a)*t;
+    const q = (v, step=0.0012) => Math.round(v / step) * step; // quantize to reduce shimmer
 
-    // Smoothed progress for viscous lag
     let smoothP = 0;
 
-    // Tendril pulses per eye lane (long occasional drips)
     const L_COUNT = 10;
     const R_COUNT = 10;
-    const leftPulse = Array.from({length:L_COUNT}, (_,i)=>({amp:0, seed:i*1.37+0.3}));
-    const rightPulse= Array.from({length:R_COUNT},(_,i)=>({amp:0, seed:i*1.91+0.8}));
 
-    function updatePulses(arr, p, dt) {
+    const leftPulse  = Array.from({length:L_COUNT}, (_,i)=>({amp:0, seed:i*1.37+0.3}));
+    const rightPulse = Array.from({length:R_COUNT}, (_,i)=>({amp:0, seed:i*1.91+0.8}));
+
+    // Persistent lane smoothing buffers (big anti-flicker fix)
+    const leftLaneY  = Array.from({length:L_COUNT+1}, () => 0);
+    const rightLaneY = Array.from({length:R_COUNT+1}, () => 0);
+
+    function updatePulses(arr, p, dtFrames) {
       for (const a of arr) {
-        // random burst chance increases mid-reveal
-        const burstChance = 0.0015 + 0.0035 * Math.sin((p*Math.PI));
-        if (Math.random() < burstChance * dt) {
-          a.amp = Math.max(a.amp, 0.08 + Math.random() * 0.22);
+        const burstChance = 0.0012 + 0.0026 * Math.sin(p * Math.PI);
+        if (Math.random() < burstChance * dtFrames) {
+          a.amp = Math.max(a.amp, 0.06 + Math.random() * 0.16);
         }
-        // viscous decay
-        a.amp *= Math.pow(0.985, dt * 60);
+        // gentler decay = less snapping
+        a.amp *= Math.pow(0.992, dtFrames);
       }
     }
 
-    function buildEyePath(xStart, dir, y, width, t, pulses, laneCount) {
-      // dir: +1 for rightward growth, -1 for leftward growth
-      // xStart is inner eye edge; shape grows outward from there
+    function buildEyePath(xStart, dir, y, width, t, pulses, laneCount, laneBuffer, dt) {
       const xEnd = clamp(xStart + dir * width, 0, 1);
-
-      // Build lane anchors from inner edge to outer edge
       const pts = [];
+
+      // lower frequency wobble to avoid bottom-tip glitching
+      const t1 = t * 0.0014;
+      const t2 = t * 0.0022;
+
       for (let i = 0; i <= laneCount; i++) {
-        const u = i / laneCount; // 0 inner -> 1 outer
+        const u = i / laneCount;
         const x = lerp(xStart, xEnd, u);
-
-        // stronger drips near inner edge, taper outward
         const innerWeight = (1 - u);
-        const baseDepth = y + innerWeight * 0.28 + (1-innerWeight)*0.10;
 
-        // unsettling wobble
+        const baseDepth = y + innerWeight * 0.26 + (1-innerWeight) * 0.10;
+
         const wobble =
-          Math.sin(t*0.0023 + i*1.21) * (0.012 + innerWeight*0.010) +
-          Math.sin(t*0.0041 + i*2.07) * 0.008;
+          Math.sin(t1 + i * 1.07) * (0.006 + innerWeight * 0.006) +
+          Math.sin(t2 + i * 1.83) * 0.004;
 
-        // pulse tendrils
-        const pulse = (pulses[i % pulses.length].amp || 0) * (0.6 + innerWeight*0.8);
+        const pulse = (pulses[i % pulses.length].amp || 0) * (0.55 + innerWeight * 0.65);
 
-        const yy = clamp(baseDepth + wobble + pulse, 0, 1);
+        let targetY = clamp(baseDepth + wobble + pulse, 0, 1);
+
+        // smooth each lane independently (strong anti-jitter)
+        const laneFollow = 1 - Math.exp(-dt * 18);
+        laneBuffer[i] += (targetY - laneBuffer[i]) * laneFollow;
+
+        // quantize after smoothing to avoid subpixel shimmer
+        const yy = q(laneBuffer[i], 0.0012);
+
         pts.push({x, y:yy});
       }
 
-      // Slight side sway for whole curtain
-      const sway = Math.sin(t*0.0012) * 0.006;
-      for (const p of pts) p.x = clamp(p.x + sway * dir, 0, 1);
+      // very subtle sway only
+      const sway = Math.sin(t * 0.0008) * 0.0035;
+      for (const p of pts) p.x = clamp(q(p.x + sway * dir, 0.0009), 0, 1);
 
-      // Polygon/curve from top edge down drip contour and back to top
-      // Order depends on direction so fill area is correct
       let d = `M ${xStart} 0 L ${xEnd} 0 L ${pts[pts.length-1].x} ${pts[pts.length-1].y} `;
       for (let i = pts.length - 2; i >= 0; i--) {
         const p0 = pts[i+1], p1 = pts[i];
-        const cx1 = lerp(p0.x, p1.x, 0.35);
-        const cy1 = p0.y;
-        const cx2 = lerp(p0.x, p1.x, 0.65);
-        const cy2 = p1.y;
+        const cx1 = q(lerp(p0.x, p1.x, 0.38), 0.0009);
+        const cy1 = q(p0.y, 0.0012);
+        const cx2 = q(lerp(p0.x, p1.x, 0.62), 0.0009);
+        const cy2 = q(p1.y, 0.0012);
         d += `C ${cx1} ${cy1}, ${cx2} ${cy2}, ${p1.x} ${p1.y} `;
       }
       d += `L ${xStart} 0 Z`;
@@ -121,34 +126,36 @@
     let lastTs = 0;
     function tick(ts) {
       if (!lastTs) lastTs = ts;
-      const dt = Math.min(0.05, (ts - lastTs)/1000); // seconds
+      const dt = Math.min(0.05, (ts - lastTs) / 1000);
       lastTs = ts;
 
       const s = window.scrollY || window.pageYOffset || 0;
       const rawPast = Math.max(0, s - HEADER_HEIGHT);
       const rawP = clamp(rawPast / WIPE_RANGE, 0, 1);
 
-      // viscous lag (follow raw progress with smoothing)
-      const follow = 1 - Math.exp(-dt * 7.5);
+      const follow = 1 - Math.exp(-dt * 7.0);
       smoothP += (rawP - smoothP) * follow;
 
-      // Edge position from above viewport to below
       const y = -0.30 + (1.42 * smoothP);
 
-      // Width grows from each inner eye edge outward
-      // left eye grows leftward, right eye grows rightward
-      const maxLeftWidth  = 0.24; // how far left curtain spreads
-      const maxRightWidth = 0.24; // how far right curtain spreads
-      const eyeOpen = Math.pow(smoothP, 0.85); // opens earlier, dramatic
-      const leftWidth  = maxLeftWidth  * eyeOpen;
+      const maxLeftWidth  = 0.24;
+      const maxRightWidth = 0.24;
+      const eyeOpen = Math.pow(smoothP, 0.85);
+      const leftWidth = maxLeftWidth * eyeOpen;
       const rightWidth = maxRightWidth * eyeOpen;
 
-      // update tendril pulses
-      updatePulses(leftPulse, smoothP, dt*60);
-      updatePulses(rightPulse, smoothP, dt*60);
+      const dtFrames = dt * 60;
+      updatePulses(leftPulse, smoothP, dtFrames);
+      updatePulses(rightPulse, smoothP, dtFrames);
 
-      const leftD = buildEyePath(LEFT_INNER_X, -1, y, leftWidth, ts, leftPulse, L_COUNT);
-      const rightD = buildEyePath(RIGHT_INNER_X, +1, y, rightWidth, ts, rightPulse, R_COUNT);
+      const leftD = buildEyePath(
+        LEFT_INNER_X, -1, y, leftWidth, ts,
+        leftPulse, L_COUNT, leftLaneY, dt
+      );
+      const rightD = buildEyePath(
+        RIGHT_INNER_X, +1, y, rightWidth, ts,
+        rightPulse, R_COUNT, rightLaneY, dt
+      );
 
       leftPath.setAttribute('d', leftD);
       rightPath.setAttribute('d', rightD);
