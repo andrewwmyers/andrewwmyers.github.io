@@ -8,7 +8,7 @@
 <body style="margin:0;background:#000;overflow-x:hidden;">
   <div style="height:340vh;"></div>
 
-  <svg id="scene" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid slice"
+  <svg id="scene" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMin slice"
        style="position:fixed;inset:0;width:100%;height:100%;display:block;pointer-events:none;z-index:1;">
     <defs>
       <clipPath id="dripClip" clipPathUnits="userSpaceOnUse">
@@ -17,22 +17,25 @@
       </clipPath>
     </defs>
 
-    <image id="baseImg"
-      href="./base.png"
-      x="0" y="0" width="1000" height="1000"
-      preserveAspectRatio="xMidYMid slice"></image>
+    <!-- Put both images in one group so they always move together -->
+    <g id="imgGroup" transform="translate(0,0)">
+      <image id="baseImg"
+        href="./base.png"
+        x="0" y="0" width="1000" height="1000"
+        preserveAspectRatio="xMidYMin slice"></image>
 
-    <image id="bleedImg"
-      href="./bleed.png"
-      x="0" y="0" width="1000" height="1000"
-      preserveAspectRatio="xMidYMid slice"
-      clip-path="url(#dripClip)"></image>
+      <image id="bleedImg"
+        href="./bleed.png"
+        x="0" y="0" width="1000" height="1000"
+        preserveAspectRatio="xMidYMin slice"
+        clip-path="url(#dripClip)"></image>
+    </g>
   </svg>
 
   <script>
     // ---------- Tuning ----------
-    const HEADER_SCROLL_VH = 0.78;       // how far to scroll before lock
-    const BLEED_START_DELAY_VH = 0.00;   // delay after lock
+    const HEADER_SCROLL_VH = 0.78;
+    const BLEED_START_DELAY_VH = 0.00;
     const WIPE_RANGE = 1800;
 
     const BLEED_START_Y = 0.20;
@@ -43,14 +46,10 @@
     const MAX_LEFT_WIDTH  = 0.24;
     const MAX_RIGHT_WIDTH = 0.24;
     const DRIP_HALF_WIDTH = 0.010;
-
-    // Ensure full image starts at its natural top (white header visible at load)
-    const START_OFFSET_PX = 80;
     // ---------------------------
 
-    const baseImg   = document.getElementById('baseImg');
-    const bleedImg  = document.getElementById('bleedImg');
-    const leftClip  = document.getElementById('leftClip');
+    const imgGroup = document.getElementById('imgGroup');
+    const leftClip = document.getElementById('leftClip');
     const rightClip = document.getElementById('rightClip');
 
     const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
@@ -102,18 +101,14 @@
       const headerScrollPx = HEADER_SCROLL_VH * vh;
       const bleedDelayPx = BLEED_START_DELAY_VH * vh;
 
-      // 1) Start at 0 offset (header visible), then move up until lock
+      // Move images upward until lock (starts from true top, no black gap)
       const headerProgress = clamp(scrollY / headerScrollPx, 0, 1);
-      const bgOffsetPx = START_OFFSET_PX - (headerScrollPx * headerProgress);
-
-      // convert px offset to SVG viewBox units
+      const bgOffsetPx = -headerScrollPx * headerProgress;
       const vbOffset = (bgOffsetPx / vh) * 1000;
 
-      // apply identical transform to both images (keeps perfect lock)
-      baseImg.setAttribute('y', String(vbOffset));
-      bleedImg.setAttribute('y', String(vbOffset));
+      imgGroup.setAttribute('transform', `translate(0 ${vbOffset})`);
 
-      // 2) Bleed reveal begins after lock (+ optional delay)
+      // Bleed progress
       const pastTrigger = Math.max(0, scrollY - headerScrollPx - bleedDelayPx);
       const rawP = clamp(pastTrigger / WIPE_RANGE, 0, 1);
 
