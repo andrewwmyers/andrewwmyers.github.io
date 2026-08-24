@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wade Myers</title>
 </head>
-<body style="margin:0;background:#000;min-height:320vh;overflow-x:hidden;">
+<body style="margin:0;background:#000;min-height:340vh;overflow-x:hidden;">
 
-  <!-- Base image (always visible, fixed/static) -->
+  <!-- Base image -->
   <div style="
     position:fixed;
     inset:0;
@@ -15,7 +15,7 @@
     z-index:0;
   "></div>
 
-  <!-- Bleed image (revealed via SVG clip path with curved/drip edge) -->
+  <!-- Bleed image revealed by dramatic SVG drip edge -->
   <div id="bleedLayer" style="
     position:fixed;
     inset:0;
@@ -26,85 +26,39 @@
     -webkit-clip-path:url(#dripReveal);
   "></div>
 
-  <!-- Hidden SVG defs for clipPath -->
   <svg width="0" height="0" style="position:absolute">
     <defs>
-      <!-- objectBoundingBox uses 0..1 coordinates -->
       <clipPath id="dripReveal" clipPathUnits="objectBoundingBox">
-        <!--
-          This path draws the REVEALED area from top down to a curved "drip edge".
-          JS moves the edge downward by changing Y values.
-        -->
-        <path id="dripPath" d="
-          M 0 0
-          L 1 0
-          L 1 0
-          C 0.92 0.02, 0.86 0.00, 0.80 0.03
-          C 0.73 0.06, 0.66 0.01, 0.60 0.05
-          C 0.54 0.08, 0.47 0.02, 0.40 0.06
-          C 0.33 0.10, 0.26 0.03, 0.20 0.07
-          C 0.14 0.10, 0.08 0.04, 0.00 0.08
-          L 0 0
-          Z
-        " />
+        <path id="dripPath" d="M0 0 L1 0 L1 0 L0 0 Z"></path>
       </clipPath>
     </defs>
   </svg>
 
   <script>
-    // Tuning
-    const HEADER_HEIGHT = 230; // start after this scroll
-    const WIPE_RANGE = 1400;   // distance to fully reveal
+    const HEADER_HEIGHT = 230; // trigger point
+    const WIPE_RANGE = 1500;   // scroll distance to complete reveal
 
     const dripPath = document.getElementById('dripPath');
     const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
     function buildPath(y) {
-      // y is the average reveal depth (0..1)
-      // Add varied offsets to create rounded/uneven drip edge
-      const y1 = clamp(y + 0.02, 0, 1);
-      const y2 = clamp(y - 0.01, 0, 1);
-      const y3 = clamp(y + 0.04, 0, 1);
-      const y4 = clamp(y + 0.07, 0, 1);
-      const y5 = clamp(y + 0.01, 0, 1);
-      const y6 = clamp(y + 0.05, 0, 1);
-      const y7 = clamp(y + 0.09, 0, 1);
-      const y8 = clamp(y + 0.03, 0, 1);
-      const y9 = clamp(y + 0.06, 0, 1);
-      const y10 = clamp(y + 0.10, 0, 1);
-      const y11 = clamp(y + 0.04, 0, 1);
-      const y12 = clamp(y + 0.08, 0, 1);
-
-      return `
-        M 0 0
-        L 1 0
-        L 1 ${y1}
-        C 0.94 ${y3}, 0.88 ${y2}, 0.82 ${y4}
-        C 0.75 ${y6}, 0.68 ${y5}, 0.62 ${y7}
-        C 0.55 ${y9}, 0.48 ${y8}, 0.42 ${y10}
-        C 0.34 ${y12}, 0.26 ${y11}, 0.18 ${y9}
-        C 0.12 ${y8}, 0.06 ${y10}, 0 ${y7}
-        L 0 0
-        Z
-      `;
-    }
-
-    function update() {
-      const yScroll = window.scrollY || window.pageYOffset || 0;
-
-      // Trigger after header is no longer fully visible
-      const pastTrigger = Math.max(0, yScroll - HEADER_HEIGHT);
-      const progress = clamp(pastTrigger / WIPE_RANGE, 0, 1);
-
-      // Edge travels from just above top to near bottom
-      const revealY = -0.12 + (1.18 * progress);
-
-      dripPath.setAttribute('d', buildPath(revealY));
-
-      requestAnimationFrame(update);
-    }
-
-    requestAnimationFrame(update);
-  </script>
-</body>
-</html>
+      // VERY dramatic alternating long/short drips
+      const p = [
+        clamp(y + 0.02, 0, 1), // right edge anchor
+        clamp(y + 0.20, 0, 1),
+        clamp(y - 0.02, 0, 1),
+        clamp(y + 0.28, 0, 1),
+        clamp(y + 0.05, 0, 1),
+        clamp(y + 0.36, 0, 1),
+        clamp(y + 0.00, 0, 1),
+        clamp(y + 0.44, 0, 1),
+        clamp(y + 0.08, 0, 1),
+        clamp(y + 0.52, 0, 1),
+        clamp(y + 0.03, 0, 1),
+        clamp(y + 0.40, 0, 1),
+        clamp(y + 0.10, 0, 1),
+        clamp(y + 0.58, 0, 1),
+        clamp(y + 0.06, 0, 1),
+        clamp(y + 0.34, 0, 1),
+        clamp(y + 0.14, 0](#)
+
