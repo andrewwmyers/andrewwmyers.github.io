@@ -66,13 +66,21 @@
   </div>
 
   <script>
-    const LOCK_VH = 0.78;
+    // =========================
+    // Tunables
+    // =========================
+
+    // Fraction of the rendered 1000x1000 image height that equals the white header height.
+    // Lock occurs when this amount has scrolled away.
+    const WHITE_HEADER_FRAC = 0.14; // tweak (ex: 0.12 - 0.18)
+
     const BLEED_START_DELAY_VH = 0.00;
     const WIPE_RANGE_VH = 1.10;
 
     const BLEED_START_Y = 0.18;
     const BLEED_TRAVEL  = 0.98;
 
+    // Eye centers (normalized 0..1 of width)
     const LEFT_INNER_X  = 0.495;
     const RIGHT_INNER_X = 0.53;
 
@@ -82,6 +90,9 @@
 
     const L_COUNT = 14, R_COUNT = 14;
 
+    // =========================
+    // Elements
+    // =========================
     const bgLayer   = document.getElementById('bgLayer');
     const headGroup = document.getElementById('headGroup');
     const leftClip  = document.getElementById('leftClip');
@@ -94,10 +105,19 @@
     const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
     const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
 
+    // Rendered image height for viewBox 1000x1000 with preserveAspectRatio="slice"
+    function getRenderedImageHeightPx() {
+      const vw = window.innerWidth || 1;
+      const vh = window.innerHeight || 1;
+      const scale = Math.max(vw / 1000, vh / 1000);
+      return 1000 * scale;
+    }
+
     function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
       const xEnd = clamp(xStart + dir * width, 0, 1);
       const t1 = t * 0.0013, t2 = t * 0.0020;
       let d = "";
+
       for(let i=0;i<=laneCount;i++){
         const u = i/laneCount, w = 1-u, x = lerp(xStart,xEnd,u);
         const baseDepth = y + w*0.28 + (1-w)*0.10;
@@ -127,14 +147,20 @@
       const scrollY = window.scrollY || window.pageYOffset || 0;
       const vh = window.innerHeight || 1;
 
-      const lockPx = LOCK_VH * vh;
+      // Dynamic lock distance (consistent across browsers/aspect ratios)
+      const renderedImgH = getRenderedImageHeightPx();
+      const lockPx = renderedImgH * WHITE_HEADER_FRAC;
+
+      // Pre-lock movement then hold
       const offsetPx = -Math.min(scrollY, lockPx);
 
       bgLayer.style.transform = `translate3d(0, ${offsetPx}px, 0)`;
 
-      const vbOffset = (offsetPx / vh) * 1000;
+      // Convert px movement into SVG viewBox units (1000 units tall maps to renderedImgH px)
+      const vbOffset = (offsetPx / renderedImgH) * 1000;
       headGroup.setAttribute('transform', `translate(0 ${vbOffset})`);
 
+      // Bleed progress starts after lock
       const pastTrigger = Math.max(0, scrollY - lockPx - (BLEED_START_DELAY_VH * vh));
       const rawP = clamp(pastTrigger / (WIPE_RANGE_VH * vh), 0, 1);
 
@@ -144,8 +170,12 @@
       const y = BLEED_START_Y + BLEED_TRAVEL * smoothP;
       const open = Math.pow(smoothP, 0.85);
 
-      leftClip.setAttribute('d', buildDripRects(LEFT_INNER_X, -1, y, MAX_LEFT_WIDTH*open, now, L_COUNT, dt, leftLaneY));
-      rightClip.setAttribute('d', buildDripRects(RIGHT_INNER_X, +1, y, MAX_RIGHT_WIDTH*open, now, R_COUNT, dt, rightLaneY));
+      leftClip.setAttribute('d', buildDripRects(
+        LEFT_INNER_X, -1, y, MAX_LEFT_WIDTH * open, now, L_COUNT, dt, leftLaneY
+      ));
+      rightClip.setAttribute('d', buildDripRects(
+        RIGHT_INNER_X, +1, y, MAX_RIGHT_WIDTH * open, now, R_COUNT, dt, rightLaneY
+      ));
     }
 
     function tick(ts){ render(ts); requestAnimationFrame(tick); }
