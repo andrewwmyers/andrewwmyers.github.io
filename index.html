@@ -3,93 +3,144 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Wade Myers</title>
+  <title>Wade Myers – Floating Head</title>
   <style>
-    html, body { margin:0; background:#000; overflow-x:hidden; }
+    html, body {
+      margin: 0;
+      background: #000;
+      overflow-x: hidden;
+    }
+
+    /* Long enough so bleed finishes before page ends */
+    .scroll-runway {
+      height: 520vh;
+    }
+
+    /* Full-viewport stage */
+    #stage {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+      overflow: hidden;
+      background: #000;
+    }
+
+    /* Shared image behavior */
+    .layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;         /* full-bleed, no letterbox */
+      object-position: center top;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    #bgLayer { z-index: 1; }
+    #headBaseLayer { z-index: 2; }
+
+    /* Bleed layer revealed via SVG clip mask */
+    #bleedSvg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 3;
+    }
+
+    /* Tiny perf hint */
+    #bgLayer, #headBaseLayer, #bleedImage, #bgGroup, #headGroup {
+      will-change: transform;
+    }
   </style>
 </head>
 <body>
-  <!-- Scroll runway -->
-  <div style="height:340vh;"></div>
+  <div class="scroll-runway"></div>
 
-  <!-- Unified scene: base + bleed in same SVG (always locked together) -->
-  <svg id="scene"
-       viewBox="0 0 1000 1000"
-       preserveAspectRatio="xMidYMin slice"
-       style="position:fixed; inset:0; width:100%; height:100%; display:block; pointer-events:none; z-index:1;">
-    <defs>
-      <clipPath id="dripClip" clipPathUnits="userSpaceOnUse">
-        <path id="leftClip" d=""></path>
-        <path id="rightClip" d=""></path>
-      </clipPath>
-    </defs>
+  <div id="stage">
+    <!-- Background -->
+    <img id="bgLayer" class="layer" src="./assets/bg-base.png" alt="">
 
-    <g id="imgGroup" transform="translate(0,0)">
-      <image id="baseImg"
-             href="./base.png"
-             x="0" y="0" width="1000" height="1000"
-             preserveAspectRatio="xMidYMin slice"></image>
+    <!-- Foreground head (no bleed) -->
+    <img id="headBaseLayer" class="layer" src="./assets/head-base.png" alt="">
 
-      <image id="bleedImg"
-             href="./bleed.png"
-             x="0" y="0" width="1000" height="1000"
-             preserveAspectRatio="xMidYMin slice"
-             clip-path="url(#dripClip)"></image>
-    </g>
-  </svg>
+    <!-- Foreground head bleed version, clipped by animated drips -->
+    <svg id="bleedSvg" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
+      <defs>
+        <clipPath id="dripClip" clipPathUnits="userSpaceOnUse">
+          <path id="leftClip" d=""></path>
+          <path id="rightClip" d=""></path>
+        </clipPath>
+      </defs>
+
+      <!-- Keep bleed image in same framing as head-base -->
+      <g id="bleedGroup" transform="translate(0,0)">
+        <image id="bleedImage"
+               href="./assets/head-bleed.png"
+               x="0" y="0" width="1000" height="1000"
+               preserveAspectRatio="xMidYMin slice"
+               clip-path="url(#dripClip)"></image>
+      </g>
+    </svg>
+  </div>
 
   <script>
-    // --------------------------
-    // REQUIRED: set this once
-    // --------------------------
-    // Fraction of image height that is white header in your source files.
-    // Example: if header is 700px in a 4000px image, use 700/4000 = 0.175
-    const WHITE_HEADER_FRAC = 0.14;
+    // ============================================
+    // Floating-Head setup (full-size aligned assets)
+    // ============================================
 
-    // Bleed timing
-    const BLEED_START_DELAY_VH = 0.00; // delay after lock (0 = immediate)
-    const WIPE_RANGE_VH = 2.2;         // reveal distance as viewport heights
+    // 1) Scroll lock point (consistent feel across devices)
+    //    Image group scrolls up with page, then locks.
+    const LOCK_VH = 0.78;
 
-    // Bleed shape tuning
+    // 2) Bleed timing
+    const BLEED_START_DELAY_VH = 0.00;
+    const WIPE_RANGE_VH = 1.45; // smaller = finishes sooner
+
+    // 3) Drip reveal geometry
     const BLEED_START_Y = 0.20;
     const BLEED_TRAVEL  = 0.94;
+
+    // 4) Eye alignment in normalized width (0..1 of image)
     const LEFT_INNER_X  = 0.495;
     const RIGHT_INNER_X = 0.53;
+
+    // 5) Horizontal spread from inner eye edges
     const MAX_LEFT_WIDTH  = 0.24;
     const MAX_RIGHT_WIDTH = 0.24;
+
+    // 6) Drip column half-thickness
     const DRIP_HALF_WIDTH = 0.010;
 
-    // --------------------------
-    const scene = document.getElementById('scene');
-    const imgGroup = document.getElementById('imgGroup');
-    const leftClip = document.getElementById('leftClip');
-    const rightClip = document.getElementById('rightClip');
+    // 7) Drip density
+    const L_COUNT = 12;
+    const R_COUNT = 12;
 
-    const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
-    const lerp  = (a,b,t)=>a+(b-a)*t;
+    // --------------------------------------------
+    const bgLayer       = document.getElementById('bgLayer');
+    const headBaseLayer = document.getElementById('headBaseLayer');
+    const bleedGroup    = document.getElementById('bleedGroup');
+    const leftClip      = document.getElementById('leftClip');
+    const rightClip     = document.getElementById('rightClip');
+
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+    const lerp  = (a, b, t) => a + (b - a) * t;
 
     let smoothP = 0;
-    const L_COUNT = 12, R_COUNT = 12;
-    const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
-    const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
+    let lastTs = 0;
 
-    // Compute rendered image height in screen px for xMidYMin slice
-    function getRenderedImageHeightPx() {
-      const vw = window.innerWidth || 1;
-      const vh = window.innerHeight || 1;
+    const leftLaneY  = Array.from({ length: L_COUNT + 1 }, () => 0);
+    const rightLaneY = Array.from({ length: R_COUNT + 1 }, () => 0);
 
-      // viewBox is 1000x1000 => aspect 1:1
-      // for "slice", scale = max(vw/1000, vh/1000)
-      const scale = Math.max(vw / 1000, vh / 1000);
-      return 1000 * scale; // rendered image height in CSS pixels
-    }
-
-    function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
+    function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf) {
       const xEnd = clamp(xStart + dir * width, 0, 1);
-      const t1 = t * 0.0013, t2 = t * 0.0020;
+      const t1 = t * 0.0013;
+      const t2 = t * 0.0020;
       let d = "";
 
-      for(let i=0;i<=laneCount;i++){
+      for (let i = 0; i <= laneCount; i++) {
         const u = i / laneCount;
         const w = 1 - u;
         const x = lerp(xStart, xEnd, u);
@@ -110,29 +161,32 @@
 
         d += `M ${xl} 0 L ${xr} 0 L ${xr} ${yb} L ${xl} ${yb} Z `;
       }
+
       return d;
     }
 
-    let lastTs = 0;
-    function tick(ts){
-      if(!lastTs) lastTs = ts;
+    function tick(ts) {
+      if (!lastTs) lastTs = ts;
       const dt = Math.min(0.05, (ts - lastTs) / 1000);
       lastTs = ts;
 
       const scrollY = window.scrollY || window.pageYOffset || 0;
       const vh = window.innerHeight || 1;
 
-      // LOCK DISTANCE computed from actual rendered image size:
-      // when we've translated up exactly the visible white-header pixel height.
-      const renderedImgH = getRenderedImageHeightPx();
-      const lockPx = renderedImgH * WHITE_HEADER_FRAC;
-
-      // Phase 1: move image up until lockPx, then freeze
+      // Phase 1: shared scroll -> lock (bg + head-base + head-bleed aligned)
+      const lockPx = LOCK_VH * vh;
       const bgOffsetPx = -Math.min(scrollY, lockPx);
-      const vbOffset = (bgOffsetPx / vh) * 1000; // px -> viewBox units
-      imgGroup.setAttribute('transform', `translate(0 ${vbOffset})`);
 
-      // Phase 2: bleed starts after lock (+ optional delay)
+      // Apply same transform to raster layers
+      const t3d = `translate3d(0, ${bgOffsetPx}px, 0)`;
+      bgLayer.style.transform = t3d;
+      headBaseLayer.style.transform = t3d;
+
+      // Apply equivalent transform to bleed SVG image group (viewBox units)
+      const vbOffset = (bgOffsetPx / vh) * 1000;
+      bleedGroup.setAttribute('transform', `translate(0 ${vbOffset})`);
+
+      // Phase 2: bleed reveal
       const bleedDelayPx = BLEED_START_DELAY_VH * vh;
       const wipeRangePx = WIPE_RANGE_VH * vh;
 
@@ -144,11 +198,16 @@
 
       const y = BLEED_START_Y + (BLEED_TRAVEL * smoothP);
       const eyeOpen = Math.pow(smoothP, 0.85);
-      const lw = MAX_LEFT_WIDTH * eyeOpen;
-      const rw = MAX_RIGHT_WIDTH * eyeOpen;
 
-      leftClip.setAttribute('d', buildDripRects(LEFT_INNER_X, -1, y, lw, ts, L_COUNT, dt, leftLaneY));
-      rightClip.setAttribute('d', buildDripRects(RIGHT_INNER_X, +1, y, rw, ts, R_COUNT, dt, rightLaneY));
+      const leftWidth  = MAX_LEFT_WIDTH * eyeOpen;
+      const rightWidth = MAX_RIGHT_WIDTH * eyeOpen;
+
+      leftClip.setAttribute('d', buildDripRects(
+        LEFT_INNER_X, -1, y, leftWidth, ts, L_COUNT, dt, leftLaneY
+      ));
+      rightClip.setAttribute('d', buildDripRects(
+        RIGHT_INNER_X, +1, y, rightWidth, ts, R_COUNT, dt, rightLaneY
+      ));
 
       requestAnimationFrame(tick);
     }
