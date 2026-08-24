@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wade Myers</title>
 </head>
-<body style="margin:0;background:#000;min-height:340vh;overflow-x:hidden;">
+<body style="margin:0;background:#000;min-height:360vh;overflow-x:hidden;">
 
-  <!-- Base image -->
+  <!-- Base image (static) -->
   <div style="
     position:fixed;
     inset:0;
@@ -15,7 +15,7 @@
     z-index:0;
   "></div>
 
-  <!-- Bleed image revealed by dramatic SVG drip edge -->
+  <!-- Bleed image (revealed with extreme organic drip edge) -->
   <div id="bleedLayer" style="
     position:fixed;
     inset:0;
@@ -26,6 +26,7 @@
     -webkit-clip-path:url(#dripReveal);
   "></div>
 
+  <!-- SVG clip path definition -->
   <svg width="0" height="0" style="position:absolute">
     <defs>
       <clipPath id="dripReveal" clipPathUnits="objectBoundingBox">
@@ -35,30 +36,61 @@
   </svg>
 
   <script>
-    const HEADER_HEIGHT = 230; // trigger point
-    const WIPE_RANGE = 1500;   // scroll distance to complete reveal
+    const HEADER_HEIGHT = 230; // starts after this scroll
+    const WIPE_RANGE = 1700;   // higher = slower reveal
 
     const dripPath = document.getElementById('dripPath');
     const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-    function buildPath(y) {
-      // VERY dramatic alternating long/short drips
-      const p = [
-        clamp(y + 0.02, 0, 1), // right edge anchor
-        clamp(y + 0.20, 0, 1),
-        clamp(y - 0.02, 0, 1),
-        clamp(y + 0.28, 0, 1),
-        clamp(y + 0.05, 0, 1),
-        clamp(y + 0.36, 0, 1),
-        clamp(y + 0.00, 0, 1),
-        clamp(y + 0.44, 0, 1),
-        clamp(y + 0.08, 0, 1),
-        clamp(y + 0.52, 0, 1),
-        clamp(y + 0.03, 0, 1),
-        clamp(y + 0.40, 0, 1),
-        clamp(y + 0.10, 0, 1),
-        clamp(y + 0.58, 0, 1),
-        clamp(y + 0.06, 0, 1),
-        clamp(y + 0.34, 0, 1),
-        clamp(y + 0.14, 0](#)
-
+    // 17 anchors across width with dramatic per-anchor depth multipliers
+    const X = [1.00,0.96,0.92,0.87,0.82,0.77,0.71,0.65,0.59,0.53,0.47,0.41,0.35,0.29,0.22,0.14,0.06,0.00];
+    const M = [0.05,0.85,0.15,1.05,0.20,1.30,0.12,1.55,0.18,1.25,0.10,1.70,0.22,1.40,0.14,1.85,0.08,1.60];
+
+    function buildPath(y, t) {
+      // y = overall wipe position (-0.30 to 1.20-ish)
+      // t = time for subtle wobble
+      const pts = [];
+
+      for (let i = 0; i < X.length; i++) {
+        // multi-frequency wobble for unsettling organic movement
+        const wobble =
+          Math.sin(t * 0.0021 + i * 1.17) * 0.020 +
+          Math.sin(t * 0.0037 + i * 2.41) * 0.012;
+
+        // dramatic vertical spikes
+        const yi = clamp(y + (M[i] * 0.34) + wobble, 0, 1);
+        pts.push({ x: X[i], y: yi });
+      }
+
+      // Build smooth cubic chain from right to left
+      let d = `M 0 0 L 1 0 L ${pts[0].x} ${pts[0].y} `;
+      for (let i = 1; i < pts.length; i++) {
+        const p0 = pts[i - 1];
+        const p1 = pts[i];
+        const cx1 = clamp(p0.x - 0.018, 0, 1);
+        const cy1 = p0.y;
+        const cx2 = clamp(p1.x + 0.018, 0, 1);
+        const cy2 = p1.y;
+        d += `C ${cx1} ${cy1}, ${cx2} ${cy2}, ${p1.x} ${p1.y} `;
+      }
+
+      d += `L 0 0 Z`;
+      return d;
+    }
+
+    function update(ts) {
+      const s = window.scrollY || window.pageYOffset || 0;
+      const past = Math.max(0, s - HEADER_HEIGHT);
+      const progress = clamp(past / WIPE_RANGE, 0, 1);
+
+      // edge travels well past viewport for full completion
+      const y = -0.34 + (1.46 * progress);
+
+      dripPath.setAttribute('d', buildPath(y, ts || performance.now()));
+      requestAnimationFrame(update);
+    }
+
+    requestAnimationFrame(update);
+  </script>
+</body>
+</html>
