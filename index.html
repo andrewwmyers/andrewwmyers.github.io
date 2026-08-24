@@ -15,51 +15,91 @@
     z-index:0;
   "></div>
 
-  <!-- Bleed image (revealed through moving mask) -->
+  <!-- Bleed image (revealed via SVG clip path with curved/drip edge) -->
   <div id="bleedLayer" style="
     position:fixed;
     inset:0;
     z-index:1;
     pointer-events:none;
     background:url('./bleed.png') center top / cover no-repeat;
-
-    /* Mask setup */
-    -webkit-mask-image: url('./wipe-mask.png');
-    mask-image: url('./wipe-mask.png');
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    -webkit-mask-size: 100% auto;
-    mask-size: 100% auto;
-
-    /* Start with mask mostly above viewport so bleed is hidden */
-    -webkit-mask-position: center -140vh;
-    mask-position: center -140vh;
+    clip-path:url(#dripReveal);
+    -webkit-clip-path:url(#dripReveal);
   "></div>
 
-  <script>
-    // Tune these
-    const HEADER_HEIGHT = 230; // start when header is gone
-    const WIPE_RANGE = 1400;   // scroll distance to complete reveal
+  <!-- Hidden SVG defs for clipPath -->
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <!-- objectBoundingBox uses 0..1 coordinates -->
+      <clipPath id="dripReveal" clipPathUnits="objectBoundingBox">
+        <!--
+          This path draws the REVEALED area from top down to a curved "drip edge".
+          JS moves the edge downward by changing Y values.
+        -->
+        <path id="dripPath" d="
+          M 0 0
+          L 1 0
+          L 1 0
+          C 0.92 0.02, 0.86 0.00, 0.80 0.03
+          C 0.73 0.06, 0.66 0.01, 0.60 0.05
+          C 0.54 0.08, 0.47 0.02, 0.40 0.06
+          C 0.33 0.10, 0.26 0.03, 0.20 0.07
+          C 0.14 0.10, 0.08 0.04, 0.00 0.08
+          L 0 0
+          Z
+        " />
+      </clipPath>
+    </defs>
+  </svg>
 
-    const bleedLayer = document.getElementById('bleedLayer');
+  <script>
+    // Tuning
+    const HEADER_HEIGHT = 230; // start after this scroll
+    const WIPE_RANGE = 1400;   // distance to fully reveal
+
+    const dripPath = document.getElementById('dripPath');
     const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-    function update() {
-      const y = window.scrollY || window.pageYOffset || 0;
+    function buildPath(y) {
+      // y is the average reveal depth (0..1)
+      // Add varied offsets to create rounded/uneven drip edge
+      const y1 = clamp(y + 0.02, 0, 1);
+      const y2 = clamp(y - 0.01, 0, 1);
+      const y3 = clamp(y + 0.04, 0, 1);
+      const y4 = clamp(y + 0.07, 0, 1);
+      const y5 = clamp(y + 0.01, 0, 1);
+      const y6 = clamp(y + 0.05, 0, 1);
+      const y7 = clamp(y + 0.09, 0, 1);
+      const y8 = clamp(y + 0.03, 0, 1);
+      const y9 = clamp(y + 0.06, 0, 1);
+      const y10 = clamp(y + 0.10, 0, 1);
+      const y11 = clamp(y + 0.04, 0, 1);
+      const y12 = clamp(y + 0.08, 0, 1);
 
-      // Trigger only after user scrolls past header
-      const pastTrigger = Math.max(0, y - HEADER_HEIGHT);
+      return `
+        M 0 0
+        L 1 0
+        L 1 ${y1}
+        C 0.94 ${y3}, 0.88 ${y2}, 0.82 ${y4}
+        C 0.75 ${y6}, 0.68 ${y5}, 0.62 ${y7}
+        C 0.55 ${y9}, 0.48 ${y8}, 0.42 ${y10}
+        C 0.34 ${y12}, 0.26 ${y11}, 0.18 ${y9}
+        C 0.12 ${y8}, 0.06 ${y10}, 0 ${y7}
+        L 0 0
+        Z
+      `;
+    }
+
+    function update() {
+      const yScroll = window.scrollY || window.pageYOffset || 0;
+
+      // Trigger after header is no longer fully visible
+      const pastTrigger = Math.max(0, yScroll - HEADER_HEIGHT);
       const progress = clamp(pastTrigger / WIPE_RANGE, 0, 1);
 
-      // Move mask downward through viewport for organic reveal
-      // from -140vh (hidden) to 20vh (revealed)
-      const start = -140;
-      const end = 20;
-      const posY = start + (end - start) * progress;
-      const pos = `center ${posY}vh`;
+      // Edge travels from just above top to near bottom
+      const revealY = -0.12 + (1.18 * progress);
 
-      bleedLayer.style.webkitMaskPosition = pos;
-      bleedLayer.style.maskPosition = pos;
+      dripPath.setAttribute('d', buildPath(revealY));
 
       requestAnimationFrame(update);
     }
