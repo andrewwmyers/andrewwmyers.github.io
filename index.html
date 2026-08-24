@@ -11,12 +11,10 @@
       overflow-x: hidden;
     }
 
-    /* Long enough so bleed finishes before page ends */
     .scroll-runway {
-      height: 520vh;
+      height: 520vh; /* enough runway so bleed completes */
     }
 
-    /* Full-viewport stage */
     #stage {
       position: fixed;
       inset: 0;
@@ -26,32 +24,27 @@
       background: #000;
     }
 
-    /* Shared image behavior */
     .layer {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
-      object-fit: cover;         /* full-bleed, no letterbox */
+      object-fit: cover;         /* full-bleed */
       object-position: center top;
       user-select: none;
       -webkit-user-drag: none;
+      will-change: transform;
     }
 
     #bgLayer { z-index: 1; }
     #headBaseLayer { z-index: 2; }
 
-    /* Bleed layer revealed via SVG clip mask */
     #bleedSvg {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       z-index: 3;
-    }
-
-    /* Tiny perf hint */
-    #bgLayer, #headBaseLayer, #bleedImage, #bgGroup, #headGroup {
       will-change: transform;
     }
   </style>
@@ -60,13 +53,10 @@
   <div class="scroll-runway"></div>
 
   <div id="stage">
-    <!-- Background -->
-    <img id="bgLayer" class="layer" src="./assets/bg-base.png" alt="">
+    <!-- Root-level files -->
+    <img id="bgLayer" class="layer" src="./bg-base.png" alt="">
+    <img id="headBaseLayer" class="layer" src="./head-base.png" alt="">
 
-    <!-- Foreground head (no bleed) -->
-    <img id="headBaseLayer" class="layer" src="./assets/head-base.png" alt="">
-
-    <!-- Foreground head bleed version, clipped by animated drips -->
     <svg id="bleedSvg" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
       <defs>
         <clipPath id="dripClip" clipPathUnits="userSpaceOnUse">
@@ -75,10 +65,9 @@
         </clipPath>
       </defs>
 
-      <!-- Keep bleed image in same framing as head-base -->
       <g id="bleedGroup" transform="translate(0,0)">
         <image id="bleedImage"
-               href="./assets/head-bleed.png"
+               href="./head-bleed.png"
                x="0" y="0" width="1000" height="1000"
                preserveAspectRatio="xMidYMin slice"
                clip-path="url(#dripClip)"></image>
@@ -87,38 +76,30 @@
   </div>
 
   <script>
-    // ============================================
-    // Floating-Head setup (full-size aligned assets)
-    // ============================================
-
-    // 1) Scroll lock point (consistent feel across devices)
-    //    Image group scrolls up with page, then locks.
-    const LOCK_VH = 0.78;
-
-    // 2) Bleed timing
+    // =========================
+    // Tunables
+    // =========================
+    const LOCK_VH = 0.78;            // pre-lock scroll distance
     const BLEED_START_DELAY_VH = 0.00;
-    const WIPE_RANGE_VH = 1.45; // smaller = finishes sooner
+    const WIPE_RANGE_VH = 1.45;      // smaller = finishes sooner
 
-    // 3) Drip reveal geometry
     const BLEED_START_Y = 0.20;
     const BLEED_TRAVEL  = 0.94;
 
-    // 4) Eye alignment in normalized width (0..1 of image)
+    // Eye alignment (normalized 0..1)
     const LEFT_INNER_X  = 0.495;
     const RIGHT_INNER_X = 0.53;
 
-    // 5) Horizontal spread from inner eye edges
     const MAX_LEFT_WIDTH  = 0.24;
     const MAX_RIGHT_WIDTH = 0.24;
-
-    // 6) Drip column half-thickness
     const DRIP_HALF_WIDTH = 0.010;
 
-    // 7) Drip density
     const L_COUNT = 12;
     const R_COUNT = 12;
 
-    // --------------------------------------------
+    // =========================
+    // Elements
+    // =========================
     const bgLayer       = document.getElementById('bgLayer');
     const headBaseLayer = document.getElementById('headBaseLayer');
     const bleedGroup    = document.getElementById('bleedGroup');
@@ -151,68 +132,5 @@
           Math.sin(t2 + i * 1.81) * 0.0035;
 
         const targetY = clamp(baseDepth + wobble, 0, 1);
-        const follow = 1 - Math.exp(-dt * 18);
-        laneBuf[i] += (targetY - laneBuf[i]) * follow;
-
-        const yy = clamp(laneBuf[i], 0, 1);
-        const xl = clamp(x - DRIP_HALF_WIDTH, 0, 1) * 1000;
-        const xr = clamp(x + DRIP_HALF_WIDTH, 0, 1) * 1000;
-        const yb = yy * 1000;
-
-        d += `M ${xl} 0 L ${xr} 0 L ${xr} ${yb} L ${xl} ${yb} Z `;
-      }
-
-      return d;
-    }
-
-    function tick(ts) {
-      if (!lastTs) lastTs = ts;
-      const dt = Math.min(0.05, (ts - lastTs) / 1000);
-      lastTs = ts;
-
-      const scrollY = window.scrollY || window.pageYOffset || 0;
-      const vh = window.innerHeight || 1;
-
-      // Phase 1: shared scroll -> lock (bg + head-base + head-bleed aligned)
-      const lockPx = LOCK_VH * vh;
-      const bgOffsetPx = -Math.min(scrollY, lockPx);
-
-      // Apply same transform to raster layers
-      const t3d = `translate3d(0, ${bgOffsetPx}px, 0)`;
-      bgLayer.style.transform = t3d;
-      headBaseLayer.style.transform = t3d;
-
-      // Apply equivalent transform to bleed SVG image group (viewBox units)
-      const vbOffset = (bgOffsetPx / vh) * 1000;
-      bleedGroup.setAttribute('transform', `translate(0 ${vbOffset})`);
-
-      // Phase 2: bleed reveal
-      const bleedDelayPx = BLEED_START_DELAY_VH * vh;
-      const wipeRangePx = WIPE_RANGE_VH * vh;
-
-      const pastTrigger = Math.max(0, scrollY - lockPx - bleedDelayPx);
-      const rawP = clamp(pastTrigger / wipeRangePx, 0, 1);
-
-      const pFollow = 1 - Math.exp(-dt * 7.0);
-      smoothP += (rawP - smoothP) * pFollow;
-
-      const y = BLEED_START_Y + (BLEED_TRAVEL * smoothP);
-      const eyeOpen = Math.pow(smoothP, 0.85);
-
-      const leftWidth  = MAX_LEFT_WIDTH * eyeOpen;
-      const rightWidth = MAX_RIGHT_WIDTH * eyeOpen;
-
-      leftClip.setAttribute('d', buildDripRects(
-        LEFT_INNER_X, -1, y, leftWidth, ts, L_COUNT, dt, leftLaneY
-      ));
-      rightClip.setAttribute('d', buildDripRects(
-        RIGHT_INNER_X, +1, y, rightWidth, ts, R_COUNT, dt, rightLaneY
-      ));
-
-      requestAnimationFrame(tick);
-    }
-
-    requestAnimationFrame(tick);
-  </script>
-</body>
-</html>
+        const follow = 1 - Math.exp(-dt * 18*
+
