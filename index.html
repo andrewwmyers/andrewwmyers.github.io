@@ -9,10 +9,10 @@
   </style>
 </head>
 <body>
-  <!-- Scroll runway -->
-  <div style="height:340vh;"></div>
+  <!-- Longer runway so we never run out of page before bleed completes -->
+  <div style="height:520vh;"></div>
 
-  <!-- Unified scene: base + bleed in same SVG (always locked together) -->
+  <!-- Unified scene: base + bleed in same SVG (always perfectly locked) -->
   <svg id="scene"
        viewBox="0 0 1000 1000"
        preserveAspectRatio="xMidYMin slice"
@@ -39,28 +39,35 @@
   </svg>
 
   <script>
-    // --------------------------
-    // REQUIRED: set this once
-    // --------------------------
-    // Fraction of image height that is white header in your source files.
-    // Example: if header is 700px in a 4000px image, use 700/4000 = 0.175
+    // --------------------------------
+    // MAIN GOAL: bleed completes before page ends
+    // --------------------------------
+
+    // Confirmed correct by you
     const WHITE_HEADER_FRAC = 0.14;
 
-    // Bleed timing
-    const BLEED_START_DELAY_VH = 0.00; // delay after lock (0 = immediate)
-    const WIPE_RANGE_VH = 2.2;         // reveal distance as viewport heights
+    // Start bleed immediately after header lock
+    const BLEED_START_DELAY_VH = 0.00;
 
-    // Bleed shape tuning
+    // Smaller = faster completion (so it finishes before page end)
+    const WIPE_RANGE_VH = 1.45;
+
+    // Bleed shape / motion
     const BLEED_START_Y = 0.20;
     const BLEED_TRAVEL  = 0.94;
+
+    // Eye alignment
     const LEFT_INNER_X  = 0.495;
     const RIGHT_INNER_X = 0.53;
+
+    // Spread from inner eye edges
     const MAX_LEFT_WIDTH  = 0.24;
     const MAX_RIGHT_WIDTH = 0.24;
+
+    // Thickness of each drip ribbon
     const DRIP_HALF_WIDTH = 0.010;
 
-    // --------------------------
-    const scene = document.getElementById('scene');
+    // --------------------------------
     const imgGroup = document.getElementById('imgGroup');
     const leftClip = document.getElementById('leftClip');
     const rightClip = document.getElementById('rightClip');
@@ -73,15 +80,11 @@
     const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
     const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
 
-    // Compute rendered image height in screen px for xMidYMin slice
     function getRenderedImageHeightPx() {
       const vw = window.innerWidth || 1;
       const vh = window.innerHeight || 1;
-
-      // viewBox is 1000x1000 => aspect 1:1
-      // for "slice", scale = max(vw/1000, vh/1000)
-      const scale = Math.max(vw / 1000, vh / 1000);
-      return 1000 * scale; // rendered image height in CSS pixels
+      const scale = Math.max(vw / 1000, vh / 1000); // slice
+      return 1000 * scale;
     }
 
     function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
@@ -122,17 +125,16 @@
       const scrollY = window.scrollY || window.pageYOffset || 0;
       const vh = window.innerHeight || 1;
 
-      // LOCK DISTANCE computed from actual rendered image size:
-      // when we've translated up exactly the visible white-header pixel height.
+      // Lock point based on real rendered image size
       const renderedImgH = getRenderedImageHeightPx();
       const lockPx = renderedImgH * WHITE_HEADER_FRAC;
 
-      // Phase 1: move image up until lockPx, then freeze
+      // Phase 1: scroll image upward until white header is gone, then lock
       const bgOffsetPx = -Math.min(scrollY, lockPx);
-      const vbOffset = (bgOffsetPx / vh) * 1000; // px -> viewBox units
+      const vbOffset = (bgOffsetPx / vh) * 1000;
       imgGroup.setAttribute('transform', `translate(0 ${vbOffset})`);
 
-      // Phase 2: bleed starts after lock (+ optional delay)
+      // Phase 2: bleed reveal
       const bleedDelayPx = BLEED_START_DELAY_VH * vh;
       const wipeRangePx = WIPE_RANGE_VH * vh;
 
