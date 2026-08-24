@@ -22,7 +22,6 @@
       background: #000;
     }
 
-    /* Full-bleed background */
     #bgLayer {
       position: absolute;
       inset: 0;
@@ -36,14 +35,15 @@
       -webkit-user-drag: none;
     }
 
-    /* Centering shell: NEVER moves horizontally */
+    /* Hard-centered shell */
     #headShell {
       position: absolute;
-      top: 0;
       left: 50%;
-      transform: translateX(-50%);
-      width: 1000px;   /* logical art units */
+      top: 0;
+      width: 1000px;
       height: 1000px;
+      transform: translateX(-50%);
+      transform-origin: top center;
       z-index: 2;
       will-change: transform;
     }
@@ -76,7 +76,6 @@
           </clipPath>
         </defs>
 
-        <!-- base + bleed locked in same coordinate space -->
         <g id="headScroll" transform="translate(0,0)">
           <image href="./head-base.png" xlink:href="./head-base.png"
                  x="0" y="0" width="1000" height="1000"></image>
@@ -90,19 +89,19 @@
   </div>
 
   <script>
-    // ===== Required behavior =====
+    // ===== Behavior controls =====
     const WHITE_HEADER_FRAC = 0.14;
 
-    // bigger head
+    // Bigger head
     const HEAD_WIDTH_FRAC = 0.92;
     const HEAD_MIN_PX = 700;
     const HEAD_MAX_PX = 1500;
 
-    // bleed timing
+    // Bleed timing
     const BLEED_START_DELAY_VH = 0.00;
     const WIPE_RANGE_VH = 1.35;
 
-    // bleed geometry
+    // Bleed geometry
     const BLEED_START_Y = 0.18;
     const BLEED_TRAVEL  = 0.99;
     const LEFT_INNER_X  = 0.495;
@@ -125,13 +124,37 @@
     const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
     const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
 
-    // Use layout viewport (stable under ctrl+wheel zoom) for positioning math
-    function getLayoutViewport() {
+    // ---- Critical: freeze vertical anchor in CSS px ----
+    let frozenHeaderBottomPx = null;
+    let baselineClientW = null;
+    let baselineClientH = null;
+
+    function layoutViewport() {
       const de = document.documentElement;
       return {
         w: de.clientWidth || window.innerWidth || 1,
         h: de.clientHeight || window.innerHeight || 1
       };
+    }
+
+    function initOrRefreshAnchor(force = false) {
+      const vp = layoutViewport();
+      if (force || frozenHeaderBottomPx === null) {
+        frozenHeaderBottomPx = WHITE_HEADER_FRAC * vp.h;
+        baselineClientW = vp.w;
+        baselineClientH = vp.h;
+        return;
+      }
+
+      // Recompute only on real layout resize, not ctrl+wheel zoom jitter
+      const wChange = Math.abs(vp.w - baselineClientW);
+      const hChange = Math.abs(vp.h - baselineClientH);
+
+      if (wChange > 24 || hChange > 24) {
+        frozenHeaderBottomPx = WHITE_HEADER_FRAC * vp.h;
+        baselineClientW = vp.w;
+        baselineClientH = vp.h;
+      }
     }
 
     function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf) {
@@ -154,7 +177,6 @@
         const xl = clamp(x - DRIP_HALF_WIDTH, 0, 1) * 1000;
         const xr = clamp(x + DRIP_HALF_WIDTH, 0, 1) * 1000;
         const yb = yy * 1000;
-
         d += `M ${xl} 0 L ${xr} 0 L ${xr} ${yb} L ${xl} ${yb} Z `;
       }
       return d;
@@ -165,32 +187,30 @@
       const dt = lastTs ? Math.min(0.05, (now - lastTs)/1000) : 1/60;
       lastTs = now;
 
-      const vp = getLayoutViewport();
+      initOrRefreshAnchor(false);
+
+      const vp = layoutViewport();
       const vw = vp.w, vh = vp.h;
       const scrollY = window.scrollY || window.pageYOffset || 0;
 
-      // 1) Size (uniform, clamped)
+      // Uniform head size (can scale with page width, clamped)
       const headPx = clamp(vw * HEAD_WIDTH_FRAC, HEAD_MIN_PX, HEAD_MAX_PX);
       const scale = headPx / 1000;
 
-      // 2) Pin top of head to bottom of white header
-      const headerBottomPx = WHITE_HEADER_FRAC * vh;
-
-      // Horizontal center is handled ONLY by CSS: left:50% + translateX(-50%)
-      // Vertical + scale handled here
+      // Keep perfectly centered; keep frozen vertical anchor
+      const headerBottomPx = frozenHeaderBottomPx;
       headShell.style.transform = `translateX(-50%) translateY(${headerBottomPx}px) scale(${scale})`;
 
-      // 3) Pre-lock scroll (bg + head move up until header is gone)
+      // Scroll up until white header no longer fully visible
       const lockPx = headerBottomPx;
       const offsetPx = -Math.min(scrollY, lockPx);
 
       bgLayer.style.transform = `translate3d(0, ${offsetPx}px, 0)`;
 
-      // local units for 1000x1000 art
-      const localY = offsetPx / scale;
-      headScroll.setAttribute('transform', `translate(0 ${localY})`);
+      // move art in local units so scale doesn't distort motion
+      headScroll.setAttribute('transform', `translate(0 ${offsetPx / scale})`);
 
-      // 4) Bleed starts after lock
+      // Bleed starts after lock
       const past = Math.max(0, scrollY - lockPx - (BLEED_START_DELAY_VH * vh));
       const rawP = clamp(past / (WIPE_RANGE_VH * vh), 0, 1);
       const follow = 1 - Math.exp(-dt * 7);
@@ -212,10 +232,19 @@
       requestAnimationFrame(tick);
     }
 
+    // Initial freeze
+    initOrRefreshAnchor(true);
+
     render(performance.now());
     requestAnimationFrame(tick);
+
     window.addEventListener('scroll', () => render(performance.now()), { passive: true });
-    window.addEventListener('resize', () => render(performance.now()));
+    window.addEventListener('resize', () => {
+      // may be real resize OR zoom; guard inside initOrRefreshAnchor
+      render(performance.now());
+    });
+
+    // Ignore visualViewport resize/scroll so ctrl+wheel zoom does not re-anchor
   </script>
 </body>
 </html>
