@@ -105,11 +105,15 @@
       // Scroll timing
       const WIPE_START_PX = 0;
       const WIPE_RANGE_PX = 6200;
-      const FRONT_FOLLOW = 3.8;
+      const FRONT_FOLLOW = 3.2;
 
       // Pre-drop
       const PREDROP_SCROLL_PX = 200;
       const PREDROP_DISTANCE_PX = 210;
+
+      // NEW: very slow handoff zone right after pre-drop (kills snap)
+      const HANDOFF_SCROLL_PX = 520;   // distance after pre-drop for slow easing
+      const HANDOFF_STRENGTH = 0.18;   // lower = slower (0.12 very slow, 0.25 moderate)
 
       // Eye columns
       const LEFT_CENTER_X  = 455;
@@ -129,9 +133,9 @@
       const POST_PREDROP_HOLD = 0.10;
       const EARLY_FADE_SPAN = 0.24;
 
-      // Top-return smoothing controls (natural, non-hard-reset)
-      const TOP_FADE_PX = 36;         // fade to invisible only in final px near top
-      const TOP_RETRACT_BOOST = 2.2;  // helps lanes catch up while scrolling upward
+      // Top behavior (smooth return to invisible)
+      const TOP_FADE_PX = 36;
+      const TOP_RETRACT_BOOST = 2.2;
 
       let smoothP = 0, lastTs = 0;
       let started = false;
@@ -228,7 +232,6 @@
 
         const y = window.scrollY || window.pageYOffset || 0;
 
-        // keep hidden until first scroll starts
         if (!started && y <= WIPE_START_PX + 1) {
           clearMasks();
           requestAnimationFrame(tick);
@@ -236,21 +239,28 @@
         }
         if (y > WIPE_START_PX + 1) started = true;
 
-        // Natural reverse wipe based on scroll
+        // Predrop
         const preT = clamp((y - WIPE_START_PX) / PREDROP_SCROLL_PX, 0, 1);
         const preEase = 1 - Math.pow(1 - preT, 3);
         const preDropPx = PREDROP_DISTANCE_PX * preEase;
 
+        // Main phase raw
         const raw = clamp((y - WIPE_START_PX - PREDROP_SCROLL_PX) / WIPE_RANGE_PX, 0, 1);
 
-        const f = 1 - Math.exp(-dt * FRONT_FOLLOW);
-        smoothP += (raw - smoothP) * f;
+        // NEW: damp early main-phase progress right after pre-drop
+        const handoffT = clamp((y - WIPE_START_PX - PREDROP_SCROLL_PX) / HANDOFF_SCROLL_PX, 0, 1);
+        const handoffEase = handoffT * handoffT * (3 - 2 * handoffT); // smoothstep 0..1
+        const damp = HANDOFF_STRENGTH + (1 - HANDOFF_STRENGTH) * handoffEase; // starts slow, rises to 1
+        const shapedRaw = raw * damp;
 
-        // extra retraction assistance near top (smooth)
-        const topN = 1 - clamp((y - WIPE_START_PX) / 180, 0, 1); // 1 near top
+        const f = 1 - Math.exp(-dt * FRONT_FOLLOW);
+        smoothP += (shapedRaw - smoothP) * f;
+
+        // Smooth retraction help near top
+        const topN = 1 - clamp((y - WIPE_START_PX) / 180, 0, 1);
         const retractBoost = 1 + (TOP_RETRACT_BOOST - 1) * (topN * topN);
 
-        // soft fade to exact invisible state in final few px at top
+        // Soft fade to invisible at very top
         const topFade = clamp((y - WIPE_START_PX) / TOP_FADE_PX, 0, 1);
         const shapedTopFade = topFade * topFade * (3 - 2 * topFade);
 
