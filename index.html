@@ -6,7 +6,7 @@
   <title>Wade Myers</title>
   <style>
     html, body { margin:0; padding:0; background:#000; overflow-x:hidden; }
-    .scroll-runway { height: 430vh; }
+    .scroll-runway { height: 520vh; } /* increased runway so slower scroll has room */
 
     #stage{
       position: fixed;
@@ -102,14 +102,19 @@
       // required baseline
       const START_Y_FRAC = 0.045;
 
-      // Scroll timing
+      // Scroll timing (slower overall)
       const WIPE_START_PX = 0;
-      const WIPE_RANGE_PX = 4200;
+      const WIPE_RANGE_PX = 6200;   // slower full descent
       const FRONT_FOLLOW = 4.6;
 
-      // NEW: pre-drop behavior
-      const PREDROP_SCROLL_PX = 200;   // scroll distance used for initial extension phase
-      const PREDROP_DISTANCE_PX = 210; // fixed distance drips extend before normal tracking
+      // Pre-drop (your selected values)
+      const PREDROP_SCROLL_PX = 200;
+      const PREDROP_DISTANCE_PX = 210;
+
+      // Early-phase extra bleed activity
+      const EARLY_DRIP_BOOST = 1.9;
+      const EARLY_WOBBLE_BOOST = 1.35;
+      const EARLY_WINDOW = 0.22;
 
       // eye columns
       const LEFT_CENTER_X  = 455;
@@ -152,6 +157,13 @@
         const leadY = clamp(baseLead + preDropPx, 0, 1000);
 
         const env = Math.sin(Math.PI * progress);
+
+        // Strongest at early progress, then fades
+        const earlyT = clamp(progress / EARLY_WINDOW, 0, 1);
+        const earlyFade = 1 - earlyT;
+        const earlyDripMult = 1 + EARLY_DRIP_BOOST * earlyFade;
+        const earlyWobbleMult = 1 + EARLY_WOBBLE_BOOST * earlyFade;
+
         const t1 = ts * 0.00095;
         const t2 = ts * 0.00155;
 
@@ -163,13 +175,13 @@
 
           const wobble =
             (Math.sin(t1 + u * 7.5 + s.a) + 0.5 * Math.sin(t2 + u * 13.5 + s.b))
-            * WOBBLE_PX * s.amp * (0.35 + 0.75 * env);
+            * WOBBLE_PX * earlyWobbleMult * s.amp * (0.35 + 0.75 * env);
 
           const p1 = (Math.sin(ts * 0.0019 + idBase + j * 1.13) + 1) * 0.5;
           const p2 = (Math.sin(ts * 0.0036 + idBase + j * 1.91) + 1) * 0.5;
           const pulse = Math.pow(0.6 * p1 + 0.4 * p2, s.bias);
 
-          const drip = pulse * DRIP_PX * env * s.amp;
+          const drip = pulse * DRIP_PX * env * earlyDripMult * s.amp;
           const target = clamp(leadY + wobble + drip, 0, 1000);
 
           const f = 1 - Math.exp(-dt * s.lag);
@@ -197,12 +209,12 @@
 
         const y = window.scrollY || window.pageYOffset || 0;
 
-        // Phase A: fixed pre-drop extension (first chunk of scroll)
+        // Phase A: pre-drop extension
         const preT = clamp((y - WIPE_START_PX) / PREDROP_SCROLL_PX, 0, 1);
         const preEase = 1 - Math.pow(1 - preT, 3); // easeOutCubic
         const preDropPx = PREDROP_DISTANCE_PX * preEase;
 
-        // Phase B: normal scroll tracking after pre-drop window
+        // Phase B: normal tracking after pre-drop
         const raw = clamp((y - WIPE_START_PX - PREDROP_SCROLL_PX) / WIPE_RANGE_PX, 0, 1);
 
         const f = 1 - Math.exp(-dt * FRONT_FOLLOW);
