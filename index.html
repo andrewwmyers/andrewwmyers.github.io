@@ -107,25 +107,25 @@
       const WIPE_RANGE_PX = 6200;
       const FRONT_FOLLOW = 3.8;
 
-      // Pre-drop (reduced so first scroll is less extreme)
+      // Pre-drop (restored to previous value)
       const PREDROP_SCROLL_PX = 200;
-      const PREDROP_DISTANCE_PX = 120; // was 210
+      const PREDROP_DISTANCE_PX = 210; // restored
 
       // Eye columns
       const LEFT_CENTER_X  = 455;
       const RIGHT_CENTER_X = 545;
       const HALF_WIDTH = 46;
 
-      // Horror drip tuning (slower/heavier)
+      // Horror drip tuning
       const LANES = 22;
       const WOBBLE_PX = 4;
-      const DRIP_PX = 220; // reduced initial reach
+      const DRIP_PX = 220;
       const LANE_FOLLOW_MIN = 1.6;
       const LANE_FOLLOW_MAX = 3.2;
 
-      // Early intensity shaping (tempered)
-      const EARLY_DRIP_BOOST = 1.35;   // was 2.8
-      const EARLY_WOBBLE_BOOST = 1.10; // was 1.25
+      // Early intensity shaping
+      const EARLY_DRIP_BOOST = 1.35;
+      const EARLY_WOBBLE_BOOST = 1.10;
       const POST_PREDROP_HOLD = 0.10;
       const EARLY_FADE_SPAN = 0.24;
 
@@ -148,14 +148,8 @@
         }));
       }
 
-      let leftState = makeState(10);
-      let rightState = makeState(90);
-
-      function resetState() {
-        leftState = makeState(10);
-        rightState = makeState(90);
-        smoothP = 0;
-      }
+      const leftState = makeState(10);
+      const rightState = makeState(90);
 
       function earlyStrength(rawProgress, preT) {
         if (preT < 1) return 1;
@@ -178,7 +172,6 @@
         const earlyDripMult = 1 + EARLY_DRIP_BOOST * e;
         const earlyWobbleMult = 1 + EARLY_WOBBLE_BOOST * e;
 
-        // slower drip motion over time
         const t1 = ts * 0.00042;
         const t2 = ts * 0.00076;
 
@@ -222,6 +215,7 @@
         rightPath.setAttribute('d', 'M0 0 Z');
       }
 
+      // hidden on initial load
       clearMasks();
 
       function tick(ts) {
@@ -231,17 +225,16 @@
 
         const y = window.scrollY || window.pageYOffset || 0;
 
-        // HARD RESET at top: no drips visible
-        if (y <= WIPE_START_PX + 1) {
-          started = false;
+        // do not render until scroll starts the first time
+        if (!started && y <= WIPE_START_PX + 1) {
           clearMasks();
-          resetState();
           requestAnimationFrame(tick);
           return;
         }
+        if (y > WIPE_START_PX + 1) started = true;
 
-        if (!started) started = true;
-
+        // Natural reverse wipe:
+        // as y returns to top, preDrop/raw go back toward 0 and mask retracts
         const preT = clamp((y - WIPE_START_PX) / PREDROP_SCROLL_PX, 0, 1);
         const preEase = 1 - Math.pow(1 - preT, 3);
         const preDropPx = PREDROP_DISTANCE_PX * preEase;
