@@ -117,9 +117,9 @@
       const HALF_WIDTH = 46;
 
       // Horror drip tuning
-      const LANES = 22;
-      const WOBBLE_PX = 4;
-      const DRIP_PX = 200;
+      const LANES = 28;
+      const WOBBLE_PX = 2.5;
+      const DRIP_PX = 235;
       const LANE_FOLLOW_MIN = 2.2;
       const LANE_FOLLOW_MAX = 4.2;
 
@@ -172,8 +172,8 @@
         const earlyDripMult = 1 + EARLY_DRIP_BOOST * e;
         const earlyWobbleMult = 1 + EARLY_WOBBLE_BOOST * e;
 
-        const t1 = ts * 0.00042;
-        const t2 = ts * 0.00076;
+        const t1 = ts * 0.00031;
+        const t2 = ts * 0.00107;
 
         const pts = [];
         for (let j = 0; j <= LANES; j++) {
@@ -182,7 +182,7 @@
           const s = state[j];
 
           const wobble =
-            (Math.sin(t1 + u * 6.5 + s.a) + 0.38 * Math.sin(t2 + u * 11.0 + s.b))
+            (Math.sin(t1 + u * 4.2 + s.a) + 0.22 * Math.sin(t2 + u * 15.7 + s.b))
             * WOBBLE_PX * earlyWobbleMult * s.amp * (0.32 + 0.62 * env);
 
           const p1 = (Math.sin(ts * 0.00085 + idBase + j * 1.07) + 1) * 0.5;
