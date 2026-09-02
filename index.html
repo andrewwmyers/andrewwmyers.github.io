@@ -30,9 +30,9 @@
       height: 100%;
       object-fit: cover;
       object-position: center top;
+      z-index: 1;
       user-select: none;
       -webkit-user-drag: none;
-      z-index: 1;
     }
 
     #headShell {
@@ -46,49 +46,62 @@
       overflow: hidden;
     }
 
-    #headSvg {
+    .headLayer {
+      position: absolute;
+      inset: 0;
       width: 100%;
       height: 100%;
-      display: block;
-      overflow: visible;
+      object-fit: contain;
+      object-position: center top;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    #baseLayer { z-index: 1; }
+
+    #bleedLayer {
+      z-index: 2;
+      /* important: both prefixed and unprefixed */
+      -webkit-mask: url(#oozeMask);
+      mask: url(#oozeMask);
+      -webkit-mask-repeat: no-repeat;
+      mask-repeat: no-repeat;
+      -webkit-mask-size: 100% 100%;
+      mask-size: 100% 100%;
+      -webkit-mask-position: 0 0;
+      mask-position: 0 0;
+      will-change: -webkit-mask, mask;
+    }
+
+    /* hidden svg defs host */
+    #maskDefs {
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+      pointer-events: none;
     }
   </style>
 </head>
 <body>
   <div class="scroll-runway"></div>
 
+  <!-- inline SVG defs for robust mask refs -->
+  <svg id="maskDefs" viewBox="0 0 1000 1000" aria-hidden="true">
+    <defs>
+      <mask id="oozeMask" maskUnits="objectBoundingBox" maskContentUnits="objectBoundingBox">
+        <rect x="0" y="0" width="1" height="1" fill="black"></rect>
+        <path id="oozePath" d="M0 0 L1 0 L1 0 L0 0 Z" fill="white"></path>
+      </mask>
+    </defs>
+  </svg>
+
   <div id="stage">
     <img id="bg" src="./black-bg.png" alt="" />
 
     <div id="headShell">
-      <svg id="headSvg"
-           viewBox="0 0 1000 1000"
-           preserveAspectRatio="xMidYMin meet"
-           xmlns="http://www.w3.org/2000/svg"
-           xmlns:xlink="http://www.w3.org/1999/xlink"
-           aria-hidden="true">
-        <defs>
-          <mask id="oozeMask" maskUnits="userSpaceOnUse" x="0" y="0" width="1000" height="1000">
-            <rect width="1000" height="1000" fill="black"></rect>
-            <path id="oozePath" d="M0 0 L1000 0 L1000 0 L0 0 Z" fill="white"></path>
-          </mask>
-        </defs>
-
-        <g>
-          <image
-            href="./head-base.png"
-            xlink:href="./head-base.png"
-            x="0" y="0" width="1000" height="1000"
-            preserveAspectRatio="xMidYMin meet"></image>
-
-          <image
-            href="./head-bleed.png"
-            xlink:href="./head-bleed.png"
-            x="0" y="0" width="1000" height="1000"
-            preserveAspectRatio="xMidYMin meet"
-            mask="url(#oozeMask)"></image>
-        </g>
-      </svg>
+      <img id="baseLayer" class="headLayer" src="./head-base.png" alt="" />
+      <img id="bleedLayer" class="headLayer" src="./head-bleed.png" alt="" />
     </div>
   </div>
 
@@ -96,39 +109,29 @@
     const oozePath = document.getElementById('oozePath');
     const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-    // Scroll tuning
     const WIPE_START_PX = 0;
     const WIPE_RANGE_PX = 1700;
+    const START_Y_FRAC = 0.36; // eyes area
 
-    // Start lower (around eye line)
-    const START_Y_FRAC = 0.36;
-
-    // Drip tuning
-    const COLS = 56;
-    const MAX_WOBBLE = 14;
-    const DRIP_DEPTH = 95;
+    const COLS = 60;
+    const MAX_WOBBLE = 0.020;   // in bbox units
+    const DRIP_DEPTH = 0.100;   // in bbox units
     const FRONT_SMOOTH = 10;
     const COLUMN_LAG = 16;
-    const DRIP_SPEED_A = 0.0011;
-    const DRIP_SPEED_B = 0.0019;
 
     let smoothP = 0;
     let lastTs = 0;
-    const colY = Array.from({ length: COLS + 1 }, () => START_Y_FRAC * 1000);
+    const colY = Array.from({ length: COLS + 1 }, () => START_Y_FRAC);
 
     function buildPath(progress, ts, dt) {
-      const baseLead = START_Y_FRAC * 1000;
-      const travel = (1 - START_Y_FRAC) * 1000;
-      const leadY = baseLead + progress * travel;
+      const leadY = START_Y_FRAC + progress * (1 - START_Y_FRAC);
+      const t1 = ts * 0.0011;
+      const t2 = ts * 0.0019;
 
-      const t1 = ts * DRIP_SPEED_A;
-      const t2 = ts * DRIP_SPEED_B;
-
-      let d = `M 0 0 L 1000 0 L 1000 ${leadY} `;
+      let d = `M 0 0 L 1 0 L 1 ${leadY} `;
 
       for (let i = COLS; i >= 0; i--) {
         const u = i / COLS;
-        const x = u * 1000;
 
         const centerWeight = 1 - Math.abs(u - 0.5) * 1.35;
         const w = clamp(centerWeight, 0.2, 1.0);
@@ -142,4 +145,38 @@
           Math.sin(t2 * 1.1 + u * 41.0) * 0.5;
 
         const drip01 = Math.pow((dripWave + 1) * 0.5, 1.8);
-        const dripEnvelope = Math.sin(Math.PI`*
+        const dripEnvelope = Math.sin(Math.PI * clamp(progress, 0, 1));
+        const drip = drip01 * DRIP_DEPTH * dripEnvelope * w;
+
+        const target = clamp(leadY + wobble + drip, 0, 1);
+
+        const follow = 1 - Math.exp(-dt * COLUMN_LAG);
+        colY[i] += (target - colY[i]) * follow;
+
+        d += `L ${u} ${clamp(colY[i], 0, 1)} `;
+      }
+
+      d += `L 0 0 Z`;
+      return d;
+    }
+
+    function tick(ts) {
+      if (!lastTs) lastTs = ts;
+      const dt = Math.min(0.05, (ts - lastTs) / 1000);
+      lastTs = ts;
+
+      const scrollY = window.scrollY || window.pageYOffset || 0;
+      const raw = clamp((scrollY - WIPE_START_PX) / WIPE_RANGE_PX, 0, 1);
+
+      const follow = 1 - Math.exp(-dt * FRONT_SMOOTH);
+      smoothP += (raw - smoothP) * follow;
+
+      oozePath.setAttribute('d', buildPath(smoothP, ts, dt));
+      requestAnimationFrame(tick);
+    }
+
+    oozePath.setAttribute('d', `M0 0 L1 0 L1 ${START_Y_FRAC} L0 ${START_Y_FRAC} Z`);
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>
