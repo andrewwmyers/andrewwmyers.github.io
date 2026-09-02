@@ -129,9 +129,9 @@
       const POST_PREDROP_HOLD = 0.10;
       const EARLY_FADE_SPAN = 0.24;
 
-      // NEW: near-top assist so retraction completes smoothly
-      const TOP_RETURN_ZONE_PX = 140;   // zone near top where retraction is encouraged
-      const TOP_RETURN_BOOST = 3.2;     // multiplies lane follow near top
+      // Top-return smoothing controls (natural, non-hard-reset)
+      const TOP_FADE_PX = 36;         // fade to invisible only in final px near top
+      const TOP_RETRACT_BOOST = 2.2;  // helps lanes catch up while scrolling upward
 
       let smoothP = 0, lastTs = 0;
       let started = false;
@@ -163,7 +163,7 @@
         return 1 - (k * k * (3 - 2 * k));
       }
 
-      function buildRoundedColumnPath(centerX, halfW, state, ts, dt, progress, idBase, preDropPx, rawProgress, preT, returnBoost) {
+      function buildRoundedColumnPath(centerX, halfW, state, ts, dt, progress, idBase, preDropPx, rawProgress, preT, retractBoost) {
         const x0 = clamp(centerX - halfW, 0, 1000);
         const x1 = clamp(centerX + halfW, 0, 1000);
 
@@ -196,7 +196,85 @@
           const drip = pulse * DRIP_PX * env * earlyDripMult * s.amp;
           const target = clamp(leadY + wobble + drip, 0, 1000);
 
-          // boosted follow near top helps lanes retract fully (smoothly)
-          const f = 1 - Math.exp(-dt * s.lag * returnBoost);
-          s.y += (target - s.y*
-
+          const f = 1 - Math.exp(-dt * s.lag * retractBoost);
+          s.y += (target - s.y) * f;
+
+          pts.push({ x, y: clamp(s.y, 0, 1000) });
+        }
+
+        let d = `M ${x0} 0 L ${x1} 0 L ${pts[LANES].x} ${pts[LANES].y} `;
+        for (let j = LANES - 1; j >= 0; j--) {
+          const p = pts[j + 1];
+          const n = pts[j];
+          const cx = (p.x + n.x) * 0.5;
+          const cy = (p.y + n.y) * 0.5;
+          d += `Q ${p.x} ${p.y} ${cx} ${cy} `;
+        }
+        d += `L ${x0} 0 Z`;
+        return d;
+      }
+
+      function clearMasks() {
+        leftPath.setAttribute('d', 'M0 0 Z');
+        rightPath.setAttribute('d', 'M0 0 Z');
+      }
+
+      clearMasks();
+
+      function tick(ts) {
+        if (!lastTs) lastTs = ts;
+        const dt = Math.min(0.05, (ts - lastTs) / 1000);
+        lastTs = ts;
+
+        const y = window.scrollY || window.pageYOffset || 0;
+
+        // keep hidden until first scroll starts
+        if (!started && y <= WIPE_START_PX + 1) {
+          clearMasks();
+          requestAnimationFrame(tick);
+          return;
+        }
+        if (y > WIPE_START_PX + 1) started = true;
+
+        // Natural reverse wipe based on scroll
+        const preT = clamp((y - WIPE_START_PX) / PREDROP_SCROLL_PX, 0, 1);
+        const preEase = 1 - Math.pow(1 - preT, 3);
+        const preDropPx = PREDROP_DISTANCE_PX * preEase;
+
+        const raw = clamp((y - WIPE_START_PX - PREDROP_SCROLL_PX) / WIPE_RANGE_PX, 0, 1);
+
+        const f = 1 - Math.exp(-dt * FRONT_FOLLOW);
+        smoothP += (raw - smoothP) * f;
+
+        // extra retraction assistance near top (smooth)
+        const topN = 1 - clamp((y - WIPE_START_PX) / 180, 0, 1); // 1 near top
+        const retractBoost = 1 + (TOP_RETRACT_BOOST - 1) * (topN * topN);
+
+        // soft fade to exact invisible state in final few px at top
+        const topFade = clamp((y - WIPE_START_PX) / TOP_FADE_PX, 0, 1);
+        const shapedTopFade = topFade * topFade * (3 - 2 * topFade);
+
+        const visProgress = smoothP * shapedTopFade;
+        const visPreDrop = preDropPx * shapedTopFade;
+
+        if (y <= WIPE_START_PX + 0.5 && shapedTopFade <= 0.0001) {
+          clearMasks();
+          requestAnimationFrame(tick);
+          return;
+        }
+
+        leftPath.setAttribute('d', buildRoundedColumnPath(
+          LEFT_CENTER_X, HALF_WIDTH, leftState, ts, dt, visProgress, 1000, visPreDrop, raw, preT, retractBoost
+        ));
+        rightPath.setAttribute('d', buildRoundedColumnPath(
+          RIGHT_CENTER_X, HALF_WIDTH, rightState, ts, dt, visProgress, 2000, visPreDrop, raw, preT, retractBoost
+        ));
+
+        requestAnimationFrame(tick);
+      }
+
+      requestAnimationFrame(tick);
+    })();
+  </script>
+</body>
+</html>
