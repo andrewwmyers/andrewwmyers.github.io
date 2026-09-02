@@ -107,9 +107,9 @@
       const WIPE_RANGE_PX = 6200;
       const FRONT_FOLLOW = 3.8;
 
-      // Pre-drop (restored to previous value)
+      // Pre-drop
       const PREDROP_SCROLL_PX = 200;
-      const PREDROP_DISTANCE_PX = 210; // restored
+      const PREDROP_DISTANCE_PX = 210;
 
       // Eye columns
       const LEFT_CENTER_X  = 455;
@@ -128,6 +128,10 @@
       const EARLY_WOBBLE_BOOST = 1.10;
       const POST_PREDROP_HOLD = 0.10;
       const EARLY_FADE_SPAN = 0.24;
+
+      // NEW: near-top fade-out window so it naturally returns to pristine state
+      // without a hard reset/pop.
+      const TOP_FADE_PX = 28; // increase to 40-60 for a longer fade zone
 
       let smoothP = 0, lastTs = 0;
       let started = false;
@@ -225,7 +229,7 @@
 
         const y = window.scrollY || window.pageYOffset || 0;
 
-        // do not render until scroll starts the first time
+        // Do not render until user has scrolled at least once
         if (!started && y <= WIPE_START_PX + 1) {
           clearMasks();
           requestAnimationFrame(tick);
@@ -233,8 +237,6 @@
         }
         if (y > WIPE_START_PX + 1) started = true;
 
-        // Natural reverse wipe:
-        // as y returns to top, preDrop/raw go back toward 0 and mask retracts
         const preT = clamp((y - WIPE_START_PX) / PREDROP_SCROLL_PX, 0, 1);
         const preEase = 1 - Math.pow(1 - preT, 3);
         const preDropPx = PREDROP_DISTANCE_PX * preEase;
@@ -244,11 +246,25 @@
         const f = 1 - Math.exp(-dt * FRONT_FOLLOW);
         smoothP += (raw - smoothP) * f;
 
+        // NEW: natural vanish as you approach top (no hard reset/pop)
+        // 1 when away from top, 0 at top.
+        const topFadeT = clamp((y - WIPE_START_PX) / TOP_FADE_PX, 0, 1);
+        const topFade = topFadeT * topFadeT * (3 - 2 * topFadeT); // smoothstep
+        const finalProgress = smoothP * topFade;
+        const finalPreDropPx = preDropPx * topFade;
+
+        // If effectively at top, keep pristine initial state.
+        if (topFade <= 0.001 && y <= WIPE_START_PX + 0.5) {
+          clearMasks();
+          requestAnimationFrame(tick);
+          return;
+        }
+
         leftPath.setAttribute('d', buildRoundedColumnPath(
-          LEFT_CENTER_X, HALF_WIDTH, leftState, ts, dt, smoothP, 1000, preDropPx, raw, preT
+          LEFT_CENTER_X, HALF_WIDTH, leftState, ts, dt, finalProgress, 1000, finalPreDropPx, raw, preT
         ));
         rightPath.setAttribute('d', buildRoundedColumnPath(
-          RIGHT_CENTER_X, HALF_WIDTH, rightState, ts, dt, smoothP, 2000, preDropPx, raw, preT
+          RIGHT_CENTER_X, HALF_WIDTH, rightState, ts, dt, finalProgress, 2000, finalPreDropPx, raw, preT
         ));
 
         requestAnimationFrame(tick);
