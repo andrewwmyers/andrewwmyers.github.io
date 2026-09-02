@@ -98,6 +98,7 @@
       if (!leftPath || !rightPath) return;
 
       const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+      const smoothstep = (t) => t * t * (3 - 2 * t);
 
       // Locked baseline
       const START_Y_FRAC = 0.045;
@@ -105,40 +106,40 @@
       // Scroll timing
       const WIPE_START_PX = 0;
       const WIPE_RANGE_PX = 6200;
-      const FRONT_FOLLOW = 3.2;
 
-      // Pre-drop
+      // Pre-drop (must happen every cycle)
       const PREDROP_SCROLL_PX = 200;
       const PREDROP_DISTANCE_PX = 210;
 
-      // NEW: very slow handoff zone right after pre-drop (kills snap)
-      const HANDOFF_SCROLL_PX = 520;   // distance after pre-drop for slow easing
-      const HANDOFF_STRENGTH = 0.18;   // lower = slower (0.12 very slow, 0.25 moderate)
+      // Slow handoff after pre-drop (prevents snap)
+      const HANDOFF_SCROLL_PX = 900;   // longer handoff = smoother
+      const HANDOFF_STRENGTH = 0.08;   // very damp right after pre-drop
 
       // Eye columns
       const LEFT_CENTER_X  = 455;
       const RIGHT_CENTER_X = 545;
       const HALF_WIDTH = 46;
 
-      // Horror drip tuning
+      // Drip style
       const LANES = 22;
       const WOBBLE_PX = 4;
-      const DRIP_PX = 220;
-      const LANE_FOLLOW_MIN = 1.6;
-      const LANE_FOLLOW_MAX = 3.2;
+      const DRIP_PX = 210;
+
+      // Follow speeds (separate down vs up so retract is smooth and complete)
+      const FOLLOW_DOWN = 1.45;     // slower descent
+      const FOLLOW_UP = 2.6;        // quicker retraction, still smooth
+      const FOLLOW_TOP_BOOST = 1.8; // extra retract near very top
 
       // Early intensity shaping
-      const EARLY_DRIP_BOOST = 1.35;
-      const EARLY_WOBBLE_BOOST = 1.10;
+      const EARLY_DRIP_BOOST = 1.25;
+      const EARLY_WOBBLE_BOOST = 1.05;
       const POST_PREDROP_HOLD = 0.10;
       const EARLY_FADE_SPAN = 0.24;
 
-      // Top behavior (smooth return to invisible)
-      const TOP_FADE_PX = 36;
-      const TOP_RETRACT_BOOST = 2.2;
-
-      let smoothP = 0, lastTs = 0;
+      // No render before first scroll
       let started = false;
+      let lastTs = 0;
+      let prevTarget = 0;
 
       function hash(n) {
         const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
@@ -147,8 +148,7 @@
 
       function makeState(seed) {
         return Array.from({ length: LANES + 1 }, (_, i) => ({
-          y: START_Y_FRAC * 1000,
-          lag: LANE_FOLLOW_MIN + (LANE_FOLLOW_MAX - LANE_FOLLOW_MIN) * hash(seed + i * 1.7),
+          y: 0, // starts invisible
           a: hash(seed + i * 2.3) * Math.PI * 2,
           b: hash(seed + i * 3.1) * Math.PI * 2,
           amp: 0.72 + 0.60 * hash(seed + i * 4.9),
@@ -159,29 +159,38 @@
       const leftState = makeState(10);
       const rightState = makeState(90);
 
+      function clearMasks() {
+        leftPath.setAttribute('d', 'M0 0 Z');
+        rightPath.setAttribute('d', 'M0 0 Z');
+      }
+
       function earlyStrength(rawProgress, preT) {
         if (preT < 1) return 1;
         const held = rawProgress - POST_PREDROP_HOLD;
         if (held <= 0) return 1;
         const k = clamp(held / EARLY_FADE_SPAN, 0, 1);
-        return 1 - (k * k * (3 - 2 * k));
+        return 1 - smoothstep(k);
       }
 
-      function buildRoundedColumnPath(centerX, halfW, state, ts, dt, progress, idBase, preDropPx, rawProgress, preT, retractBoost) {
+      function buildPath(centerX, halfW, state, ts, dt, data, idBase, followRate) {
+        const { totalProgress, rawProgress, preT } = data;
+
+        // Truly invisible when at top target
+        if (totalProgress <= 0.000001) return 'M0 0 Z';
+
         const x0 = clamp(centerX - halfW, 0, 1000);
         const x1 = clamp(centerX + halfW, 0, 1000);
 
-        const baseLead = START_Y_FRAC * 1000 + progress * ((1 - START_Y_FRAC) * 1000);
-        const leadY = clamp(baseLead + preDropPx, 0, 1000);
+        const leadY = totalProgress * 1000; // includes start frac + predrop + main
 
-        const env = 0.18 + 0.82 * Math.sin(Math.PI * clamp(progress, 0, 1));
+        const env = 0.16 + 0.84 * Math.sin(Math.PI * clamp(rawProgress, 0, 1));
 
         const e = earlyStrength(rawProgress, preT);
         const earlyDripMult = 1 + EARLY_DRIP_BOOST * e;
         const earlyWobbleMult = 1 + EARLY_WOBBLE_BOOST * e;
 
-        const t1 = ts * 0.00042;
-        const t2 = ts * 0.00076;
+        const t1 = ts * 0.00036;
+        const t2 = ts * 0.00064;
 
         const pts = [];
         for (let j = 0; j <= LANES; j++) {
@@ -190,18 +199,18 @@
           const s = state[j];
 
           const wobble =
-            (Math.sin(t1 + u * 6.5 + s.a) + 0.38 * Math.sin(t2 + u * 11.0 + s.b))
-            * WOBBLE_PX * earlyWobbleMult * s.amp * (0.32 + 0.62 * env);
+            (Math.sin(t1 + u * 6.5 + s.a) + 0.34 * Math.sin(t2 + u * 11.0 + s.b))
+            * WOBBLE_PX * earlyWobbleMult * s.amp * (0.30 + 0.60 * env);
 
-          const p1 = (Math.sin(ts * 0.00085 + idBase + j * 1.07) + 1) * 0.5;
-          const p2 = (Math.sin(ts * 0.00145 + idBase + j * 1.71) + 1) * 0.5;
-          const pulse = Math.pow(0.65 * p1 + 0.35 * p2, s.bias);
+          const p1 = (Math.sin(ts * 0.00072 + idBase + j * 1.07) + 1) * 0.5;
+          const p2 = (Math.sin(ts * 0.00120 + idBase + j * 1.71) + 1) * 0.5;
+          const pulse = Math.pow(0.68 * p1 + 0.32 * p2, s.bias);
 
           const drip = pulse * DRIP_PX * env * earlyDripMult * s.amp;
-          const target = clamp(leadY + wobble + drip, 0, 1000);
+          const targetY = clamp(leadY + wobble + drip, 0, 1000);
 
-          const f = 1 - Math.exp(-dt * s.lag * retractBoost);
-          s.y += (target - s.y) * f;
+          const f = 1 - Math.exp(-dt * followRate);
+          s.y += (targetY - s.y) * f;
 
           pts.push({ x, y: clamp(s.y, 0, 1000) });
         }
@@ -210,17 +219,39 @@
         for (let j = LANES - 1; j >= 0; j--) {
           const p = pts[j + 1];
           const n = pts[j];
-          const cx = (p.x + n.x) * 0.5;
-          const cy = (p.y + n.y) * 0.5;
-          d += `Q ${p.x} ${p.y} ${cx} ${cy} `;
+          d += `Q ${p.x} ${p.y} ${(p.x + n.x) * 0.5} ${(p.y + n.y) * 0.5} `;
         }
         d += `L ${x0} 0 Z`;
         return d;
       }
 
-      function clearMasks() {
-        leftPath.setAttribute('d', 'M0 0 Z');
-        rightPath.setAttribute('d', 'M0 0 Z');
+      function computeProgress(y) {
+        // Pre-drop 0..1
+        const preT = clamp((y - WIPE_START_PX) / PREDROP_SCROLL_PX, 0, 1);
+        const preEase = smoothstep(preT);
+        const preDrop = (PREDROP_DISTANCE_PX / 1000) * preEase;
+
+        // Main raw
+        const raw = clamp((y - WIPE_START_PX - PREDROP_SCROLL_PX) / WIPE_RANGE_PX, 0, 1);
+
+        // Slow handoff after predrop
+        const hT = clamp((y - WIPE_START_PX - PREDROP_SCROLL_PX) / HANDOFF_SCROLL_PX, 0, 1);
+        const hEase = smoothstep(hT);
+        const damp = HANDOFF_STRENGTH + (1 - HANDOFF_STRENGTH) * hEase;
+        const shapedRaw = raw * damp;
+
+        // Base lead with start frac
+        const base = START_Y_FRAC + shapedRaw * (1 - START_Y_FRAC);
+
+        // Total includes predrop distance
+        const total = clamp(base + preDrop, 0, 1);
+
+        // Keep strictly invisible exactly at top
+        if (y <= WIPE_START_PX + 0.5) {
+          return { totalProgress: 0, rawProgress: 0, preT: 0 };
+        }
+
+        return { totalProgress: total, rawProgress: raw, preT };
       }
 
       clearMasks();
@@ -239,46 +270,23 @@
         }
         if (y > WIPE_START_PX + 1) started = true;
 
-        // Predrop
-        const preT = clamp((y - WIPE_START_PX) / PREDROP_SCROLL_PX, 0, 1);
-        const preEase = 1 - Math.pow(1 - preT, 3);
-        const preDropPx = PREDROP_DISTANCE_PX * preEase;
+        const p = computeProgress(y);
 
-        // Main phase raw
-        const raw = clamp((y - WIPE_START_PX - PREDROP_SCROLL_PX) / WIPE_RANGE_PX, 0, 1);
+        // Direction-aware follow
+        const goingUp = p.totalProgress < prevTarget;
+        prevTarget = p.totalProgress;
 
-        // NEW: damp early main-phase progress right after pre-drop
-        const handoffT = clamp((y - WIPE_START_PX - PREDROP_SCROLL_PX) / HANDOFF_SCROLL_PX, 0, 1);
-        const handoffEase = handoffT * handoffT * (3 - 2 * handoffT); // smoothstep 0..1
-        const damp = HANDOFF_STRENGTH + (1 - HANDOFF_STRENGTH) * handoffEase; // starts slow, rises to 1
-        const shapedRaw = raw * damp;
+        // Extra retraction help near top, smooth not hard
+        const topN = 1 - clamp((y - WIPE_START_PX) / 220, 0, 1);
+        const topBoost = 1 + (FOLLOW_TOP_BOOST - 1) * smoothstep(topN);
 
-        const f = 1 - Math.exp(-dt * FRONT_FOLLOW);
-        smoothP += (shapedRaw - smoothP) * f;
+        const followRate = goingUp ? (FOLLOW_UP * topBoost) : FOLLOW_DOWN;
 
-        // Smooth retraction help near top
-        const topN = 1 - clamp((y - WIPE_START_PX) / 180, 0, 1);
-        const retractBoost = 1 + (TOP_RETRACT_BOOST - 1) * (topN * topN);
+        const ld = buildPath(LEFT_CENTER_X, HALF_WIDTH, leftState, ts, dt, p, 1000, followRate);
+        const rd = buildPath(RIGHT_CENTER_X, HALF_WIDTH, rightState, ts, dt, p, 2000, followRate);
 
-        // Soft fade to invisible at very top
-        const topFade = clamp((y - WIPE_START_PX) / TOP_FADE_PX, 0, 1);
-        const shapedTopFade = topFade * topFade * (3 - 2 * topFade);
-
-        const visProgress = smoothP * shapedTopFade;
-        const visPreDrop = preDropPx * shapedTopFade;
-
-        if (y <= WIPE_START_PX + 0.5 && shapedTopFade <= 0.0001) {
-          clearMasks();
-          requestAnimationFrame(tick);
-          return;
-        }
-
-        leftPath.setAttribute('d', buildRoundedColumnPath(
-          LEFT_CENTER_X, HALF_WIDTH, leftState, ts, dt, visProgress, 1000, visPreDrop, raw, preT, retractBoost
-        ));
-        rightPath.setAttribute('d', buildRoundedColumnPath(
-          RIGHT_CENTER_X, HALF_WIDTH, rightState, ts, dt, visProgress, 2000, visPreDrop, raw, preT, retractBoost
-        ));
+        leftPath.setAttribute('d', ld);
+        rightPath.setAttribute('d', rd);
 
         requestAnimationFrame(tick);
       }
