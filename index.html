@@ -102,20 +102,24 @@
       // required baseline
       const START_Y_FRAC = 0.045;
 
-      // Start feeling like previous iteration (less delayed)
+      // Scroll timing
       const WIPE_START_PX = 0;
       const WIPE_RANGE_PX = 4200;
       const FRONT_FOLLOW = 4.6;
 
+      // NEW: pre-drop behavior
+      const PREDROP_SCROLL_PX = 220;   // scroll distance used for initial extension phase
+      const PREDROP_DISTANCE_PX = 140; // fixed distance drips extend before normal tracking
+
       // eye columns
       const LEFT_CENTER_X  = 455;
       const RIGHT_CENTER_X = 545;
-      const HALF_WIDTH = 46; // slightly wider = less "knife-like"
+      const HALF_WIDTH = 46;
 
       // rounded horror drip tuning
       const LANES = 20;
-      const WOBBLE_PX = 6;     // reduce sharp jitter
-      const DRIP_PX = 235;     // deep drips
+      const WOBBLE_PX = 6;
+      const DRIP_PX = 235;
       const LANE_FOLLOW_MIN = 3.0;
       const LANE_FOLLOW_MAX = 6.2;
 
@@ -140,18 +144,17 @@
       const leftState = makeState(10);
       const rightState = makeState(90);
 
-      function buildRoundedColumnPath(centerX, halfW, state, ts, dt, progress, idBase) {
+      function buildRoundedColumnPath(centerX, halfW, state, ts, dt, progress, idBase, preDropPx) {
         const x0 = clamp(centerX - halfW, 0, 1000);
         const x1 = clamp(centerX + halfW, 0, 1000);
 
-        // no extra creep curve -> starts engaging immediately
-        const leadY = START_Y_FRAC * 1000 + progress * ((1 - START_Y_FRAC) * 1000);
-        const env = Math.sin(Math.PI * progress);
+        const baseLead = START_Y_FRAC * 1000 + progress * ((1 - START_Y_FRAC) * 1000);
+        const leadY = clamp(baseLead + preDropPx, 0, 1000);
 
+        const env = Math.sin(Math.PI * progress);
         const t1 = ts * 0.00095;
         const t2 = ts * 0.00155;
 
-        // collect points across width
         const pts = [];
         for (let j = 0; j <= LANES; j++) {
           const u = j / LANES;
@@ -175,10 +178,7 @@
           pts.push({ x, y: clamp(s.y, 0, 1000) });
         }
 
-        // Build path:
-        // top-left -> top-right -> down to first point -> smooth rounded edge with Q segments -> close
         let d = `M ${x0} 0 L ${x1} 0 L ${pts[LANES].x} ${pts[LANES].y} `;
-
         for (let j = LANES - 1; j >= 0; j--) {
           const p = pts[j + 1];
           const n = pts[j];
@@ -186,7 +186,6 @@
           const cy = (p.y + n.y) * 0.5;
           d += `Q ${p.x} ${p.y} ${cx} ${cy} `;
         }
-
         d += `L ${x0} 0 Z`;
         return d;
       }
@@ -197,13 +196,24 @@
         lastTs = ts;
 
         const y = window.scrollY || window.pageYOffset || 0;
-        const raw = clamp((y - WIPE_START_PX) / WIPE_RANGE_PX, 0, 1);
+
+        // Phase A: fixed pre-drop extension (first chunk of scroll)
+        const preT = clamp((y - WIPE_START_PX) / PREDROP_SCROLL_PX, 0, 1);
+        const preEase = 1 - Math.pow(1 - preT, 3); // easeOutCubic
+        const preDropPx = PREDROP_DISTANCE_PX * preEase;
+
+        // Phase B: normal scroll tracking after pre-drop window
+        const raw = clamp((y - WIPE_START_PX - PREDROP_SCROLL_PX) / WIPE_RANGE_PX, 0, 1);
 
         const f = 1 - Math.exp(-dt * FRONT_FOLLOW);
         smoothP += (raw - smoothP) * f;
 
-        leftPath.setAttribute('d', buildRoundedColumnPath(LEFT_CENTER_X, HALF_WIDTH, leftState, ts, dt, smoothP, 1000));
-        rightPath.setAttribute('d', buildRoundedColumnPath(RIGHT_CENTER_X, HALF_WIDTH, rightState, ts, dt, smoothP, 2000));
+        leftPath.setAttribute('d', buildRoundedColumnPath(
+          LEFT_CENTER_X, HALF_WIDTH, leftState, ts, dt, smoothP, 1000, preDropPx
+        ));
+        rightPath.setAttribute('d', buildRoundedColumnPath(
+          RIGHT_CENTER_X, HALF_WIDTH, rightState, ts, dt, smoothP, 2000, preDropPx
+        ));
 
         requestAnimationFrame(tick);
       }
