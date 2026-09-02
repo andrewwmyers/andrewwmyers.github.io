@@ -107,27 +107,27 @@
       const WIPE_RANGE_PX = 6200;
       const FRONT_FOLLOW = 3.8;
 
-      // Pre-drop
+      // Pre-drop (reduced so first scroll is less extreme)
       const PREDROP_SCROLL_PX = 200;
-      const PREDROP_DISTANCE_PX = 210;
+      const PREDROP_DISTANCE_PX = 120; // was 210
 
       // Eye columns
       const LEFT_CENTER_X  = 455;
       const RIGHT_CENTER_X = 545;
       const HALF_WIDTH = 46;
 
-      // Horror drip tuning
+      // Horror drip tuning (slower/heavier)
       const LANES = 22;
-      const WOBBLE_PX = 5;
-      const DRIP_PX = 290;
-      const LANE_FOLLOW_MIN = 2.1;
-      const LANE_FOLLOW_MAX = 4.4;
+      const WOBBLE_PX = 4;
+      const DRIP_PX = 220; // reduced initial reach
+      const LANE_FOLLOW_MIN = 1.6;
+      const LANE_FOLLOW_MAX = 3.2;
 
-      // Early intensity shaping
-      const EARLY_DRIP_BOOST = 2.8;
-      const EARLY_WOBBLE_BOOST = 1.25;
-      const POST_PREDROP_HOLD = 0.16;
-      const EARLY_FADE_SPAN = 0.30;
+      // Early intensity shaping (tempered)
+      const EARLY_DRIP_BOOST = 1.35;   // was 2.8
+      const EARLY_WOBBLE_BOOST = 1.10; // was 1.25
+      const POST_PREDROP_HOLD = 0.10;
+      const EARLY_FADE_SPAN = 0.24;
 
       let smoothP = 0, lastTs = 0;
       let started = false;
@@ -143,13 +143,19 @@
           lag: LANE_FOLLOW_MIN + (LANE_FOLLOW_MAX - LANE_FOLLOW_MIN) * hash(seed + i * 1.7),
           a: hash(seed + i * 2.3) * Math.PI * 2,
           b: hash(seed + i * 3.1) * Math.PI * 2,
-          amp: 0.78 + 0.75 * hash(seed + i * 4.9),
-          bias: 1.55 + 1.4 * hash(seed + i * 6.7)
+          amp: 0.72 + 0.60 * hash(seed + i * 4.9),
+          bias: 1.45 + 1.10 * hash(seed + i * 6.7)
         }));
       }
 
-      const leftState = makeState(10);
-      const rightState = makeState(90);
+      let leftState = makeState(10);
+      let rightState = makeState(90);
+
+      function resetState() {
+        leftState = makeState(10);
+        rightState = makeState(90);
+        smoothP = 0;
+      }
 
       function earlyStrength(rawProgress, preT) {
         if (preT < 1) return 1;
@@ -166,14 +172,15 @@
         const baseLead = START_Y_FRAC * 1000 + progress * ((1 - START_Y_FRAC) * 1000);
         const leadY = clamp(baseLead + preDropPx, 0, 1000);
 
-        const env = 0.22 + 0.78 * Math.sin(Math.PI * clamp(progress, 0, 1));
+        const env = 0.18 + 0.82 * Math.sin(Math.PI * clamp(progress, 0, 1));
 
         const e = earlyStrength(rawProgress, preT);
         const earlyDripMult = 1 + EARLY_DRIP_BOOST * e;
         const earlyWobbleMult = 1 + EARLY_WOBBLE_BOOST * e;
 
-        const t1 = ts * 0.00062;
-        const t2 = ts * 0.00105;
+        // slower drip motion over time
+        const t1 = ts * 0.00042;
+        const t2 = ts * 0.00076;
 
         const pts = [];
         for (let j = 0; j <= LANES; j++) {
@@ -182,12 +189,12 @@
           const s = state[j];
 
           const wobble =
-            (Math.sin(t1 + u * 7.0 + s.a) + 0.45 * Math.sin(t2 + u * 12.5 + s.b))
-            * WOBBLE_PX * earlyWobbleMult * s.amp * (0.35 + 0.65 * env);
+            (Math.sin(t1 + u * 6.5 + s.a) + 0.38 * Math.sin(t2 + u * 11.0 + s.b))
+            * WOBBLE_PX * earlyWobbleMult * s.amp * (0.32 + 0.62 * env);
 
-          const p1 = (Math.sin(ts * 0.00125 + idBase + j * 1.11) + 1) * 0.5;
-          const p2 = (Math.sin(ts * 0.00215 + idBase + j * 1.83) + 1) * 0.5;
-          const pulse = Math.pow(0.62 * p1 + 0.38 * p2, s.bias);
+          const p1 = (Math.sin(ts * 0.00085 + idBase + j * 1.07) + 1) * 0.5;
+          const p2 = (Math.sin(ts * 0.00145 + idBase + j * 1.71) + 1) * 0.5;
+          const pulse = Math.pow(0.65 * p1 + 0.35 * p2, s.bias);
 
           const drip = pulse * DRIP_PX * env * earlyDripMult * s.amp;
           const target = clamp(leadY + wobble + drip, 0, 1000);
@@ -210,11 +217,11 @@
         return d;
       }
 
-      // hide bleed until scroll starts
       function clearMasks() {
         leftPath.setAttribute('d', 'M0 0 Z');
         rightPath.setAttribute('d', 'M0 0 Z');
       }
+
       clearMasks();
 
       function tick(ts) {
@@ -224,14 +231,16 @@
 
         const y = window.scrollY || window.pageYOffset || 0;
 
-        if (!started) {
-          if (y <= WIPE_START_PX + 1) {
-            clearMasks();
-            requestAnimationFrame(tick);
-            return;
-          }
-          started = true;
+        // HARD RESET at top: no drips visible
+        if (y <= WIPE_START_PX + 1) {
+          started = false;
+          clearMasks();
+          resetState();
+          requestAnimationFrame(tick);
+          return;
         }
+
+        if (!started) started = true;
 
         const preT = clamp((y - WIPE_START_PX) / PREDROP_SCROLL_PX, 0, 1);
         const preEase = 1 - Math.pow(1 - preT, 3);
