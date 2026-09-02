@@ -129,9 +129,9 @@
       const POST_PREDROP_HOLD = 0.10;
       const EARLY_FADE_SPAN = 0.24;
 
-      // NEW: near-top fade-out window so it naturally returns to pristine state
-      // without a hard reset/pop.
-      const TOP_FADE_PX = 28; // increase to 40-60 for a longer fade zone
+      // NEW: near-top assist so retraction completes smoothly
+      const TOP_RETURN_ZONE_PX = 140;   // zone near top where retraction is encouraged
+      const TOP_RETURN_BOOST = 3.2;     // multiplies lane follow near top
 
       let smoothP = 0, lastTs = 0;
       let started = false;
@@ -163,7 +163,7 @@
         return 1 - (k * k * (3 - 2 * k));
       }
 
-      function buildRoundedColumnPath(centerX, halfW, state, ts, dt, progress, idBase, preDropPx, rawProgress, preT) {
+      function buildRoundedColumnPath(centerX, halfW, state, ts, dt, progress, idBase, preDropPx, rawProgress, preT, returnBoost) {
         const x0 = clamp(centerX - halfW, 0, 1000);
         const x1 = clamp(centerX + halfW, 0, 1000);
 
@@ -196,82 +196,7 @@
           const drip = pulse * DRIP_PX * env * earlyDripMult * s.amp;
           const target = clamp(leadY + wobble + drip, 0, 1000);
 
-          const f = 1 - Math.exp(-dt * s.lag);
-          s.y += (target - s.y) * f;
-
-          pts.push({ x, y: clamp(s.y, 0, 1000) });
-        }
-
-        let d = `M ${x0} 0 L ${x1} 0 L ${pts[LANES].x} ${pts[LANES].y} `;
-        for (let j = LANES - 1; j >= 0; j--) {
-          const p = pts[j + 1];
-          const n = pts[j];
-          const cx = (p.x + n.x) * 0.5;
-          const cy = (p.y + n.y) * 0.5;
-          d += `Q ${p.x} ${p.y} ${cx} ${cy} `;
-        }
-        d += `L ${x0} 0 Z`;
-        return d;
-      }
-
-      function clearMasks() {
-        leftPath.setAttribute('d', 'M0 0 Z');
-        rightPath.setAttribute('d', 'M0 0 Z');
-      }
-
-      // hidden on initial load
-      clearMasks();
-
-      function tick(ts) {
-        if (!lastTs) lastTs = ts;
-        const dt = Math.min(0.05, (ts - lastTs) / 1000);
-        lastTs = ts;
-
-        const y = window.scrollY || window.pageYOffset || 0;
-
-        // Do not render until user has scrolled at least once
-        if (!started && y <= WIPE_START_PX + 1) {
-          clearMasks();
-          requestAnimationFrame(tick);
-          return;
-        }
-        if (y > WIPE_START_PX + 1) started = true;
-
-        const preT = clamp((y - WIPE_START_PX) / PREDROP_SCROLL_PX, 0, 1);
-        const preEase = 1 - Math.pow(1 - preT, 3);
-        const preDropPx = PREDROP_DISTANCE_PX * preEase;
-
-        const raw = clamp((y - WIPE_START_PX - PREDROP_SCROLL_PX) / WIPE_RANGE_PX, 0, 1);
-
-        const f = 1 - Math.exp(-dt * FRONT_FOLLOW);
-        smoothP += (raw - smoothP) * f;
-
-        // NEW: natural vanish as you approach top (no hard reset/pop)
-        // 1 when away from top, 0 at top.
-        const topFadeT = clamp((y - WIPE_START_PX) / TOP_FADE_PX, 0, 1);
-        const topFade = topFadeT * topFadeT * (3 - 2 * topFadeT); // smoothstep
-        const finalProgress = smoothP * topFade;
-        const finalPreDropPx = preDropPx * topFade;
-
-        // If effectively at top, keep pristine initial state.
-        if (topFade <= 0.001 && y <= WIPE_START_PX + 0.5) {
-          clearMasks();
-          requestAnimationFrame(tick);
-          return;
-        }
-
-        leftPath.setAttribute('d', buildRoundedColumnPath(
-          LEFT_CENTER_X, HALF_WIDTH, leftState, ts, dt, finalProgress, 1000, finalPreDropPx, raw, preT
-        ));
-        rightPath.setAttribute('d', buildRoundedColumnPath(
-          RIGHT_CENTER_X, HALF_WIDTH, rightState, ts, dt, finalProgress, 2000, finalPreDropPx, raw, preT
-        ));
-
-        requestAnimationFrame(tick);
-      }
-
-      requestAnimationFrame(tick);
-    })();
-  </script>
-</body>
-</html>
+          // boosted follow near top helps lanes retract fully (smoothly)
+          const f = 1 - Math.exp(-dt * s.lag * returnBoost);
+          s.y += (target - s.y*
+
