@@ -105,22 +105,22 @@
       // Per your requirement:
       const START_Y_FRAC = 0.045;
 
-      // Scroll timing
+      // Scroll timing (slow overall progression)
       const WIPE_START_PX = 0;
-      const WIPE_RANGE_PX = 3000;
+      const WIPE_RANGE_PX = 5200;
 
       // Two narrow wipe columns aligned to eyes (0..1000 space)
       const LEFT_CENTER_X  = 455;
       const RIGHT_CENTER_X = 545;
       const HALF_WIDTH = 42;
 
-      // Extra drippy / random
+      // Heavy horror ooze tuning
       const LANES = 18;
-      const WOBBLE_PX = 14;
-      const DRIP_PX = 210;
-      const FRONT_FOLLOW = 5;
-      const LANE_FOLLOW_MIN = 6;
-      const LANE_FOLLOW_MAX = 10;
+      const WOBBLE_PX = 8;
+      const DRIP_PX = 260;
+      const FRONT_FOLLOW = 2.2;
+      const LANE_FOLLOW_MIN = 2.0;
+      const LANE_FOLLOW_MAX = 4.2;
 
       let smoothP = 0;
       let lastTs = 0;
@@ -148,8 +148,10 @@
         const x0 = clamp(centerX - halfW, 0, 1000);
         const x1 = clamp(centerX + halfW, 0, 1000);
 
-        const leadY = START_Y_FRAC * 1000 + progress * ((1 - START_Y_FRAC) * 1000);
         const env = Math.sin(Math.PI * progress);
+        const creep = Math.pow(progress, 1.85); // slows early/mid descent
+        const leadY = START_Y_FRAC * 1000 + creep * ((1 - START_Y_FRAC) * 1000);
+
         const t1 = ts * 0.0011;
         const t2 = ts * 0.0019;
 
