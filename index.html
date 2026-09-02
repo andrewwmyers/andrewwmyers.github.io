@@ -6,8 +6,6 @@
   <title>Wade Myers</title>
   <style>
     html, body { margin:0; background:#000; overflow-x:hidden; }
-
-    /* Fullscreen fixed scene */
     #scene{
       position: fixed;
       inset: 0;
@@ -16,18 +14,14 @@
       display: block;
       pointer-events: none;
       z-index: 1;
+      background: #000;
     }
   </style>
 </head>
 <body>
-  <!-- Scroll runway -->
   <div style="height:340vh;"></div>
 
-  <!-- Unified scene: base + bleed in same SVG (always locked together) -->
-  <svg id="scene"
-       viewBox="0 0 1000 1000"
-       preserveAspectRatio="xMidYMin slice"
-       aria-hidden="true">
+  <svg id="scene" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMin slice" aria-hidden="true">
     <defs>
       <clipPath id="dripClip" clipPathUnits="userSpaceOnUse">
         <path id="leftClip" d=""></path>
@@ -35,15 +29,14 @@
       </clipPath>
     </defs>
 
-    <!-- Head image group hard-anchored at top (y=0) -->
     <g id="imgGroup" transform="translate(0,0)">
       <image id="baseImg"
-             href="./base.png"
+             href="./head-base.png"
              x="0" y="0" width="1000" height="1000"
              preserveAspectRatio="xMidYMin slice"></image>
 
       <image id="bleedImg"
-             href="./bleed.png"
+             href="./head-bleed.png"
              x="0" y="0" width="1000" height="1000"
              preserveAspectRatio="xMidYMin slice"
              clip-path="url(#dripClip)"></image>
@@ -51,14 +44,10 @@
   </svg>
 
   <script>
-    // No white-header logic. Hard top anchor only.
     const TOP_ANCHOR_PX = 0;
+    const BLEED_START_DELAY_VH = 0.00;
+    const WIPE_RANGE_VH = 2.2;
 
-    // Bleed timing
-    const BLEED_START_DELAY_VH = 0.00; // delay before bleed starts
-    const WIPE_RANGE_VH = 2.2;         // reveal distance in viewport heights
-
-    // Bleed shape tuning
     const BLEED_START_Y = 0.20;
     const BLEED_TRAVEL  = 0.94;
     const LEFT_INNER_X  = 0.495;
@@ -78,14 +67,6 @@
     const L_COUNT = 12, R_COUNT = 12;
     const leftLaneY  = Array.from({length:L_COUNT+1},()=>0);
     const rightLaneY = Array.from({length:R_COUNT+1},()=>0);
-
-    // Compute rendered image height in screen px for xMidYMin slice
-    function getRenderedImageHeightPx() {
-      const vw = window.innerWidth || 1;
-      const vh = window.innerHeight || 1;
-      const scale = Math.max(vw / 1000, vh / 1000); // slice
-      return 1000 * scale;
-    }
 
     function buildDripRects(xStart, dir, y, width, t, laneCount, dt, laneBuf){
       const xEnd = clamp(xStart + dir * width, 0, 1);
@@ -125,18 +106,12 @@
       const scrollY = window.scrollY || window.pageYOffset || 0;
       const vh = window.innerHeight || 1;
 
-      // Hard anchor at top: no white-header compensation
-      // TOP_ANCHOR_PX is 0 by default; kept explicit for easy tuning.
-      const baseOffsetPx = -TOP_ANCHOR_PX;
-      const vbOffset = (baseOffsetPx / vh) * 1000;
+      const vbOffset = (-TOP_ANCHOR_PX / vh) * 1000;
       imgGroup.setAttribute('transform', `translate(0 ${vbOffset})`);
 
-      // Bleed progression from scroll (starts immediately by default)
-      const lockPx = 0;
       const bleedDelayPx = BLEED_START_DELAY_VH * vh;
       const wipeRangePx = WIPE_RANGE_VH * vh;
-
-      const pastTrigger = Math.max(0, scrollY - lockPx - bleedDelayPx);
+      const pastTrigger = Math.max(0, scrollY - bleedDelayPx);
       const rawP = clamp(pastTrigger / wipeRangePx, 0, 1);
 
       const pFollow = 1 - Math.exp(-dt * 7.0);
