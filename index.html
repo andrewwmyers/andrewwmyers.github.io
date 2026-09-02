@@ -1,44 +1,35 @@
 <script>
   const oozePath = document.getElementById('oozePath');
   const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+  const lerp = (a, b, t) => a + (b - a) * t; // <-- moved up (fix)
 
-  // Keep your requested start
   const START_Y_FRAC = 0.045;
-
-  // Scroll behavior
   const WIPE_START_PX = 0;
   const WIPE_RANGE_PX = 1700;
 
-  // Two eye columns (in 0..1 SVG space)
-  // Tune these if needed to align perfectly with your eyes:
   const LEFT_EYE_X = 0.455;
   const RIGHT_EYE_X = 0.545;
+  const EYE_HALF_WIDTH = 0.040;
 
-  // Narrow wipe width per eye column (half-width each side)
-  const EYE_HALF_WIDTH = 0.040; // ~8% total width per column
-
-  // Drip behavior (intentionally extreme + random)
-  const COLS_PER_EYE = 24;     // strand density per column
-  const MAX_WOBBLE = 26;       // side wobble in px
-  const DRIP_DEPTH = 220;      // long drips
-  const FRONT_SMOOTH = 9;      // lower = gooier lag
+  const COLS_PER_EYE = 24;
+  const MAX_WOBBLE = 26;
+  const DRIP_DEPTH = 220;
+  const FRONT_SMOOTH = 9;
   const COLUMN_LAG_MIN = 10;
   const COLUMN_LAG_MAX = 22;
 
   let smoothP = 0;
   let lastTs = 0;
 
-  // deterministic per-lane randomness
   function laneRand(i) {
     const x = Math.sin(i * 127.1 + 311.7) * 43758.5453123;
     return x - Math.floor(x);
   }
 
-  // Build x-lanes for each eye
   function buildEyeLanes(centerX, halfWidth, count) {
     const lanes = [];
     for (let i = 0; i <= count; i++) {
-      const u = i / count; // 0..1 across this eye column
+      const u = i / count;
       const x = clamp(centerX - halfWidth + (u * halfWidth * 2), 0, 1);
       lanes.push({
         x,
@@ -53,8 +44,6 @@
     return lanes;
   }
 
-  const lerp = (a, b, t) => a + (b - a) * t;
-
   const leftLanes = buildEyeLanes(LEFT_EYE_X, EYE_HALF_WIDTH, COLS_PER_EYE);
   const rightLanes = buildEyeLanes(RIGHT_EYE_X, EYE_HALF_WIDTH, COLS_PER_EYE);
 
@@ -62,14 +51,12 @@
     const t1 = ts * 0.0010 + lane.phaseA;
     const t2 = ts * 0.0019 + lane.phaseB;
 
-    // chaotic wobble mixture
     const wobble =
       (Math.sin(t1 + lane.x * 16.0) +
        0.7 * Math.sin(t2 + lane.x * 31.0) +
        0.35 * Math.sin(ts * 0.0037 + idxGlobal * 0.9))
       * MAX_WOBBLE * lane.amp * (0.35 + 0.75 * Math.sin(Math.PI * progress));
 
-    // random drip pulses (always downward), with per-lane bias
     const pulseA = (Math.sin(ts * 0.0022 + idxGlobal * 1.73) + 1) * 0.5;
     const pulseB = (Math.sin(ts * 0.0041 + idxGlobal * 2.37) + 1) * 0.5;
     const pulse = Math.pow(0.55 * pulseA + 0.45 * pulseB, lane.dripBias);
@@ -86,22 +73,15 @@
   }
 
   function buildPath(progress, ts, dt) {
-    // lead starts at START_Y_FRAC and travels down
     const leadY = START_Y_FRAC * 1000 + progress * ((1 - START_Y_FRAC) * 1000);
-
-    // Build two separate closed white shapes in one path string:
-    // left eye column + right eye column
     let d = "";
 
     const buildColumn = (lanes, idOffset) => {
       const topY = 0;
       const firstX = lanes[0].x * 1000;
       const lastX = lanes[lanes.length - 1].x * 1000;
-
-      // Start at top-left of column, go to top-right, then down right edge near lead
       let seg = `M ${firstX} ${topY} L ${lastX} ${topY} L ${lastX} ${leadY} `;
 
-      // Traverse lanes right->left to form drippy front
       for (let i = lanes.length - 1; i >= 0; i--) {
         const lane = lanes[i];
         const y = updateLaneY(lane, leadY, progress, ts, dt, idOffset + i);
@@ -114,7 +94,6 @@
 
     d += buildColumn(leftLanes, 1000);
     d += buildColumn(rightLanes, 2000);
-
     return d;
   }
 
@@ -133,7 +112,6 @@
     requestAnimationFrame(tick);
   }
 
-  // Initial: tiny reveal at START_Y_FRAC in only two eye columns
   const y0 = START_Y_FRAC * 1000;
   oozePath.setAttribute('d', [
     `M ${(LEFT_EYE_X - EYE_HALF_WIDTH) * 1000} 0 L ${(LEFT_EYE_X + EYE_HALF_WIDTH) * 1000} 0 L ${(LEFT_EYE_X + EYE_HALF_WIDTH) * 1000} ${y0} L ${(LEFT_EYE_X - EYE_HALF_WIDTH) * 1000} ${y0} Z`,
