@@ -6,27 +6,46 @@
   <title>Wade Myers</title>
   <style>
     html, body { margin:0; padding:0; background:#000; overflow-x:hidden; }
-    .scroll-runway { height:430vh; }
+    .scroll-runway { height: 430vh; }
 
     #stage{
-      position:fixed; inset:0; overflow:hidden; pointer-events:none;
-      background:#000; z-index:1;
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+      background: #000;
+      z-index: 1;
     }
 
     #bg{
-      position:absolute; inset:0; width:100%; height:100%;
-      object-fit:cover; object-position:center top; z-index:1;
-      user-select:none; -webkit-user-drag:none;
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+      z-index: 1;
+      user-select: none;
+      -webkit-user-drag: none;
     }
 
     #headShell{
-      position:absolute; left:50%; top:0;
-      width:min(1800px,125vw); aspect-ratio:1/1;
-      transform:translateX(-50%);
-      z-index:2; overflow:hidden;
+      position: absolute;
+      left: 50%;
+      top: 0;
+      width: min(1800px, 125vw);
+      aspect-ratio: 1 / 1;
+      transform: translateX(-50%);
+      z-index: 2;
+      overflow: hidden;
     }
 
-    #headSvg{ width:100%; height:100%; display:block; overflow:visible; }
+    #headSvg{
+      width: 100%;
+      height: 100%;
+      display: block;
+      overflow: visible;
+    }
   </style>
 </head>
 <body>
@@ -34,6 +53,7 @@
 
   <div id="stage">
     <img id="bg" src="./black-bg.png" alt="" />
+
     <div id="headShell">
       <svg id="headSvg"
            viewBox="0 0 1000 1000"
@@ -41,60 +61,123 @@
            xmlns="http://www.w3.org/2000/svg"
            xmlns:xlink="http://www.w3.org/1999/xlink"
            aria-hidden="true">
+
         <defs>
-          <mask id="oozeMask" maskUnits="userSpaceOnUse" x="0" y="0" width="1000" height="1000">
+          <mask id="oozeMaskLeft" maskUnits="userSpaceOnUse" x="0" y="0" width="1000" height="1000">
             <rect x="0" y="0" width="1000" height="1000" fill="black"></rect>
-            <path id="oozePath" d="M0 0 L1000 0 L1000 0 L0 0 Z" fill="white"></path>
+            <path id="oozePathLeft" d="M0 0 L0 0 Z" fill="white"></path>
+          </mask>
+
+          <mask id="oozeMaskRight" maskUnits="userSpaceOnUse" x="0" y="0" width="1000" height="1000">
+            <rect x="0" y="0" width="1000" height="1000" fill="black"></rect>
+            <path id="oozePathRight" d="M0 0 L0 0 Z" fill="white"></path>
           </mask>
         </defs>
 
+        <!-- base -->
         <image href="./head-base.png" xlink:href="./head-base.png"
                x="0" y="0" width="1000" height="1000"
                preserveAspectRatio="xMidYMin meet"></image>
 
+        <!-- bleed left-eye column -->
         <image href="./head-bleed.png" xlink:href="./head-bleed.png"
                x="0" y="0" width="1000" height="1000"
                preserveAspectRatio="xMidYMin meet"
-               mask="url(#oozeMask)"></image>
+               mask="url(#oozeMaskLeft)"></image>
+
+        <!-- bleed right-eye column -->
+        <image href="./head-bleed.png" xlink:href="./head-bleed.png"
+               x="0" y="0" width="1000" height="1000"
+               preserveAspectRatio="xMidYMin meet"
+               mask="url(#oozeMaskRight)"></image>
       </svg>
     </div>
   </div>
 
   <script>
     (function () {
-      const oozePath = document.getElementById('oozePath');
-      if (!oozePath) return;
+      const leftPath = document.getElementById('oozePathLeft');
+      const rightPath = document.getElementById('oozePathRight');
+      if (!leftPath || !rightPath) return;
 
-      const clamp = (v,min,max) => Math.max(min, Math.min(max, v));
+      const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-      // Required baseline from you
+      // Per your requirement:
       const START_Y_FRAC = 0.045;
 
-      // Stable, simple full-width wipe (safe baseline)
+      // Scroll timing
       const WIPE_START_PX = 0;
       const WIPE_RANGE_PX = 1700;
-      const COLS = 40;
-      const WOBBLE = 10;
+
+      // Two narrow wipe columns aligned to eyes (0..1000 space)
+      const LEFT_CENTER_X  = 455;
+      const RIGHT_CENTER_X = 545;
+      const HALF_WIDTH = 42;
+
+      // Extra drippy / random
+      const LANES = 18;
+      const WOBBLE_PX = 14;
+      const DRIP_PX = 180;
+      const FRONT_FOLLOW = 10;
+      const LANE_FOLLOW_MIN = 10;
+      const LANE_FOLLOW_MAX = 20;
 
       let smoothP = 0;
       let lastTs = 0;
-      const laneY = Array.from({ length: COLS + 1 }, () => START_Y_FRAC * 1000);
 
-      function buildPath(progress, ts, dt) {
+      function hash(n) {
+        const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+        return x - Math.floor(x);
+      }
+
+      function makeState(seed) {
+        return Array.from({ length: LANES + 1 }, (_, i) => ({
+          y: START_Y_FRAC * 1000,
+          lag: LANE_FOLLOW_MIN + (LANE_FOLLOW_MAX - LANE_FOLLOW_MIN) * hash(seed + i * 1.7),
+          a: hash(seed + i * 2.3) * Math.PI * 2,
+          b: hash(seed + i * 3.1) * Math.PI * 2,
+          amp: 0.7 + 0.8 * hash(seed + i * 4.9),
+          bias: 1.2 + 1.8 * hash(seed + i * 6.7)
+        }));
+      }
+
+      const leftState = makeState(10);
+      const rightState = makeState(90);
+
+      function buildColumnPath(centerX, halfW, state, ts, dt, progress, idBase) {
+        const x0 = clamp(centerX - halfW, 0, 1000);
+        const x1 = clamp(centerX + halfW, 0, 1000);
+
         const leadY = START_Y_FRAC * 1000 + progress * ((1 - START_Y_FRAC) * 1000);
-        const t = ts * 0.0012;
+        const env = Math.sin(Math.PI * progress);
+        const t1 = ts * 0.0011;
+        const t2 = ts * 0.0019;
 
-        let d = `M 0 0 L 1000 0 L 1000 ${leadY} `;
-        for (let i = COLS; i >= 0; i--) {
-          const u = i / COLS;
-          const x = u * 1000;
-          const wob = Math.sin(t + u * 10) * WOBBLE * Math.sin(Math.PI * progress);
-          const target = clamp(leadY + wob, 0, 1000);
-          const follow = 1 - Math.exp(-dt * 14);
-          laneY[i] += (target - laneY[i]) * follow;
-          d += `L ${x} ${clamp(laneY[i], 0, 1000)} `;
+        let d = `M ${x0} 0 L ${x1} 0 L ${x1} ${leadY} `;
+
+        for (let j = LANES; j >= 0; j--) {
+          const u = j / LANES;
+          const x = x0 + (x1 - x0) * u;
+          const s = state[j];
+
+          const wobble =
+            (Math.sin(t1 + u * 9.0 + s.a) + 0.65 * Math.sin(t2 + u * 17.0 + s.b))
+            * WOBBLE_PX * s.amp * (0.35 + 0.75 * env);
+
+          const p1 = (Math.sin(ts * 0.0023 + idBase + j * 1.37) + 1) * 0.5;
+          const p2 = (Math.sin(ts * 0.0047 + idBase + j * 2.11) + 1) * 0.5;
+          const pulse = Math.pow(0.55 * p1 + 0.45 * p2, s.bias);
+
+          const drip = pulse * DRIP_PX * env * s.amp;
+          const target = clamp(leadY + wobble + drip, 0, 1000);
+
+          const f = 1 - Math.exp(-dt * s.lag);
+          s.y += (target - s.y) * f;
+
+          d += `L ${x} ${clamp(s.y, 0, 1000)} `;
         }
-        d += `L 0 0 Z`;
+
+        d += `L ${x0} 0 Z`;
         return d;
       }
 
@@ -105,14 +188,16 @@
 
         const y = window.scrollY || window.pageYOffset || 0;
         const raw = clamp((y - WIPE_START_PX) / WIPE_RANGE_PX, 0, 1);
-        const follow = 1 - Math.exp(-dt * 10);
-        smoothP += (raw - smoothP) * follow;
 
-        oozePath.setAttribute('d', buildPath(smoothP, ts, dt));
+        const f = 1 - Math.exp(-dt * FRONT_FOLLOW);
+        smoothP += (raw - smoothP) * f;
+
+        leftPath.setAttribute('d', buildColumnPath(LEFT_CENTER_X, HALF_WIDTH, leftState, ts, dt, smoothP, 1000));
+        rightPath.setAttribute('d', buildColumnPath(RIGHT_CENTER_X, HALF_WIDTH, rightState, ts, dt, smoothP, 2000));
+
         requestAnimationFrame(tick);
       }
 
-      oozePath.setAttribute('d', `M0 0 L1000 0 L1000 ${START_Y_FRAC*1000} L0 ${START_Y_FRAC*1000} Z`);
       requestAnimationFrame(tick);
     })();
   </script>
