@@ -35,41 +35,23 @@
       z-index: 1;
     }
 
-    /* Locked, top-anchored head container */
+    /* Top-anchored, large, centered */
     #headShell {
       position: absolute;
       left: 50%;
       top: 0;
-      width: min(1800px, 125vw); /* very large */
+      width: min(1800px, 125vw);
       aspect-ratio: 1 / 1;
       transform: translateX(-50%);
-      transform-origin: top center;
       z-index: 2;
       overflow: hidden;
     }
 
-    .headLayer {
-      position: absolute;
-      inset: 0;
+    #headSvg {
       width: 100%;
       height: 100%;
-      object-fit: contain;
-      object-position: center top;
-      user-select: none;
-      -webkit-user-drag: none;
-    }
-
-    #baseLayer { z-index: 1; }
-    #bleedLayer {
-      z-index: 2;
-      /* Mask assigned in JS */
-      -webkit-mask-repeat: no-repeat;
-      -webkit-mask-size: 100% 100%;
-      -webkit-mask-position: 0 0;
-      mask-repeat: no-repeat;
-      mask-size: 100% 100%;
-      mask-position: 0 0;
-      will-change: -webkit-mask-image, mask-image;
+      display: block;
+      overflow: visible;
     }
   </style>
 </head>
@@ -80,73 +62,84 @@
     <img id="bg" src="./black-bg.png" alt="" />
 
     <div id="headShell">
-      <img id="baseLayer" class="headLayer" src="./head-base.png" alt="" />
-      <img id="bleedLayer" class="headLayer" src="./head-bleed.png" alt="" />
+      <svg id="headSvg"
+           viewBox="0 0 1000 1000"
+           preserveAspectRatio="xMidYMin meet"
+           xmlns="http://www.w3.org/2000/svg"
+           xmlns:xlink="http://www.w3.org/1999/xlink"
+           aria-hidden="true">
+
+        <defs>
+          <!-- White in mask = visible -->
+          <mask id="oozeMask" maskUnits="userSpaceOnUse" x="0" y="0" width="1000" height="1000">
+            <rect width="1000" height="1000" fill="black"></rect>
+            <path id="oozePath" d="M0 0 L1000 0 L1000 0 L0 0 Z" fill="white"></path>
+          </mask>
+        </defs>
+
+        <!-- locked pair -->
+        <g>
+          <image
+            href="./head-base.png"
+            xlink:href="./head-base.png"
+            x="0" y="0" width="1000" height="1000"
+            preserveAspectRatio="xMidYMin meet"></image>
+
+          <image
+            href="./head-bleed.png"
+            xlink:href="./head-bleed.png"
+            x="0" y="0" width="1000" height="1000"
+            preserveAspectRatio="xMidYMin meet"
+            mask="url(#oozeMask)"></image>
+        </g>
+      </svg>
     </div>
   </div>
 
   <script>
-    const bleed = document.getElementById('bleedLayer');
+    const oozePath = document.getElementById('oozePath');
     const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-    const lerp  = (a, b, t) => a + (b - a) * t;
 
     // Scroll tuning
-    const WIPE_START_PX = 10;     // when reveal begins
-    const WIPE_RANGE_PX = 1700;   // scroll distance to reach full reveal
+    const WIPE_START_PX = 0;
+    const WIPE_RANGE_PX = 1600;
 
     // Ooze tuning
-    const COLS = 72;              // more columns = smoother edge
-    const EDGE_SOFTEN_PX = 2;     // blur-ish soft edge via gradient span
-    const MAX_WOBBLE_PX = 22;     // vertical wobble amplitude near leading edge
-    const FOLLOW_SPEED = 11;      // larger = snappier
+    const COLS = 48;
+    const MAX_WOBBLE = 18;
+    const FRONT_SMOOTH = 10;
+    const COLUMN_LAG = 14;
 
     let smoothP = 0;
     let lastTs = 0;
+    const colY = Array.from({ length: COLS + 1 }, () => 0);
 
-    // per-column lag memory for gooey behavior
-    const colLag = Array.from({ length: COLS + 1 }, () => 0);
-
-    function buildOozeMask(progress, t, dt) {
-      // progress: 0..1 (how much of bleed is revealed top->bottom)
-      const leadY = progress * 1000; // mask space height
-      const time1 = t * 0.0012;
-      const time2 = t * 0.0019;
+    function buildPath(progress, ts, dt) {
+      const leadY = progress * 1000;
+      const t1 = ts * 0.0014;
+      const t2 = ts * 0.0021;
 
       let d = `M 0 0 L 1000 0 L 1000 ${leadY} `;
 
       for (let i = COLS; i >= 0; i--) {
-        const u = i / COLS;           // 0..1 across x
+        const u = i / COLS;
         const x = u * 1000;
 
-        // Stronger wobble near the advancing front when progress is mid-range
-        const phase = Math.sin(time1 + u * 9.5) + Math.sin(time2 + u * 17.0) * 0.6;
-        const envelope = Math.sin(Math.PI * clamp(progress, 0, 1)); // peaks around mid progress
-        const wobble = phase * MAX_WOBBLE_PX * envelope;
+        const envelope = Math.sin(Math.PI * progress); // strongest mid animation
+        const wobble =
+          (Math.sin(t1 + u * 10.0) + 0.6 * Math.sin(t2 + u * 17.0))
+          * MAX_WOBBLE * envelope;
 
-        // target front for this column
         const target = clamp(leadY + wobble, 0, 1000);
 
-        // per-column easing => viscous ooze feel
-        const follow = 1 - Math.exp(-dt * (16 - 6 * Math.abs(u - 0.5)));
-        colLag[i] += (target - colLag[i]) * follow;
+        const follow = 1 - Math.exp(-dt * COLUMN_LAG);
+        colY[i] += (target - colY[i]) * follow;
 
-        const y = clamp(colLag[i], 0, 1000);
-        d += `L ${x} ${y} `;
+        d += `L ${x} ${clamp(colY[i], 0, 1000)} `;
       }
 
       d += `L 0 0 Z`;
-
-      // White reveals, black hides
-      const svg =
-`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 1000' preserveAspectRatio='none'>
-  <rect width='1000' height='1000' fill='black'/>
-  <path d='${d}' fill='white'/>
-  <filter id='s'>
-    <feGaussianBlur stdDeviation='${EDGE_SOFTEN_PX}' />
-  </filter>
-</svg>`;
-
-      return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+      return d;
     }
 
     function tick(ts) {
@@ -154,22 +147,15 @@
       const dt = Math.min(0.05, (ts - lastTs) / 1000);
       lastTs = ts;
 
-      const y = window.scrollY || window.pageYOffset || 0;
-      const raw = clamp((y - WIPE_START_PX) / WIPE_RANGE_PX, 0, 1);
+      const scrollY = window.scrollY || window.pageYOffset || 0;
+      const raw = clamp((scrollY - WIPE_START_PX) / WIPE_RANGE_PX, 0, 1);
 
-      const follow = 1 - Math.exp(-dt * FOLLOW_SPEED);
+      const follow = 1 - Math.exp(-dt * FRONT_SMOOTH);
       smoothP += (raw - smoothP) * follow;
 
-      const maskUrl = buildOozeMask(smoothP, ts, dt);
-      bleed.style.webkitMaskImage = maskUrl;
-      bleed.style.maskImage = maskUrl;
-
+      oozePath.setAttribute('d', buildPath(smoothP, ts, dt));
       requestAnimationFrame(tick);
     }
-
-    // initialize hidden
-    bleed.style.webkitMaskImage = buildOozeMask(0, 0, 0.016);
-    bleed.style.maskImage = bleed.style.webkitMaskImage;
 
     requestAnimationFrame(tick);
   </script>
