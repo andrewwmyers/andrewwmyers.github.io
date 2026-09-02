@@ -65,12 +65,12 @@
         <defs>
           <mask id="oozeMaskLeft" maskUnits="userSpaceOnUse" x="0" y="0" width="1000" height="1000">
             <rect x="0" y="0" width="1000" height="1000" fill="black"></rect>
-            <path id="oozePathLeft" d="M0 0 L0 0 Z" fill="white"></path>
+            <path id="oozePathLeft" d="M0 0 Z" fill="white"></path>
           </mask>
 
           <mask id="oozeMaskRight" maskUnits="userSpaceOnUse" x="0" y="0" width="1000" height="1000">
             <rect x="0" y="0" width="1000" height="1000" fill="black"></rect>
-            <path id="oozePathRight" d="M0 0 L0 0 Z" fill="white"></path>
+            <path id="oozePathRight" d="M0 0 Z" fill="white"></path>
           </mask>
         </defs>
 
@@ -99,15 +99,15 @@
 
       const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-      // Locked baseline per your request
+      // Locked baseline
       const START_Y_FRAC = 0.045;
 
-      // Scroll timing (slow overall)
+      // Scroll timing
       const WIPE_START_PX = 0;
       const WIPE_RANGE_PX = 6200;
-      const FRONT_FOLLOW = 3.8; // heavier/slower catch-up
+      const FRONT_FOLLOW = 3.8;
 
-      // Pre-drop (your chosen values)
+      // Pre-drop
       const PREDROP_SCROLL_PX = 200;
       const PREDROP_DISTANCE_PX = 210;
 
@@ -116,22 +116,21 @@
       const RIGHT_CENTER_X = 545;
       const HALF_WIDTH = 46;
 
-      // Horror drip tuning (slower + drippier)
+      // Horror drip tuning
       const LANES = 22;
       const WOBBLE_PX = 5;
       const DRIP_PX = 290;
       const LANE_FOLLOW_MIN = 2.1;
       const LANE_FOLLOW_MAX = 4.4;
 
-      // Early behavior:
-      // - active during pre-drop
-      // - remains strong immediately after pre-drop
+      // Early intensity shaping
       const EARLY_DRIP_BOOST = 2.8;
       const EARLY_WOBBLE_BOOST = 1.25;
-      const POST_PREDROP_HOLD = 0.16; // keep boost for first ~16% after pre-drop
-      const EARLY_FADE_SPAN = 0.30;   // then fade gradually
+      const POST_PREDROP_HOLD = 0.16;
+      const EARLY_FADE_SPAN = 0.30;
 
       let smoothP = 0, lastTs = 0;
+      let started = false;
 
       function hash(n) {
         const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
@@ -153,16 +152,11 @@
       const rightState = makeState(90);
 
       function earlyStrength(rawProgress, preT) {
-        // During pre-drop => full early boost
         if (preT < 1) return 1;
-
-        // After pre-drop, hold the boost, then fade
         const held = rawProgress - POST_PREDROP_HOLD;
         if (held <= 0) return 1;
-
         const k = clamp(held / EARLY_FADE_SPAN, 0, 1);
-        // Smooth fade out
-        return 1 - (k * k * (3 - 2 * k)); // smoothstep inverse
+        return 1 - (k * k * (3 - 2 * k));
       }
 
       function buildRoundedColumnPath(centerX, halfW, state, ts, dt, progress, idBase, preDropPx, rawProgress, preT) {
@@ -172,14 +166,12 @@
         const baseLead = START_Y_FRAC * 1000 + progress * ((1 - START_Y_FRAC) * 1000);
         const leadY = clamp(baseLead + preDropPx, 0, 1000);
 
-        // Keep activity present even very early
         const env = 0.22 + 0.78 * Math.sin(Math.PI * clamp(progress, 0, 1));
 
         const e = earlyStrength(rawProgress, preT);
         const earlyDripMult = 1 + EARLY_DRIP_BOOST * e;
         const earlyWobbleMult = 1 + EARLY_WOBBLE_BOOST * e;
 
-        // Slower temporal evolution = slower apparent dripping
         const t1 = ts * 0.00062;
         const t2 = ts * 0.00105;
 
@@ -218,6 +210,13 @@
         return d;
       }
 
+      // hide bleed until scroll starts
+      function clearMasks() {
+        leftPath.setAttribute('d', 'M0 0 Z');
+        rightPath.setAttribute('d', 'M0 0 Z');
+      }
+      clearMasks();
+
       function tick(ts) {
         if (!lastTs) lastTs = ts;
         const dt = Math.min(0.05, (ts - lastTs) / 1000);
@@ -225,15 +224,21 @@
 
         const y = window.scrollY || window.pageYOffset || 0;
 
-        // Pre-drop phase
+        if (!started) {
+          if (y <= WIPE_START_PX + 1) {
+            clearMasks();
+            requestAnimationFrame(tick);
+            return;
+          }
+          started = true;
+        }
+
         const preT = clamp((y - WIPE_START_PX) / PREDROP_SCROLL_PX, 0, 1);
-        const preEase = 1 - Math.pow(1 - preT, 3); // easeOutCubic
+        const preEase = 1 - Math.pow(1 - preT, 3);
         const preDropPx = PREDROP_DISTANCE_PX * preEase;
 
-        // Main scroll phase
         const raw = clamp((y - WIPE_START_PX - PREDROP_SCROLL_PX) / WIPE_RANGE_PX, 0, 1);
 
-        // Heavy smoothing
         const f = 1 - Math.exp(-dt * FRONT_FOLLOW);
         smoothP += (raw - smoothP) * f;
 
