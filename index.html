@@ -74,18 +74,15 @@
           </mask>
         </defs>
 
-        <!-- base -->
         <image href="./head-base.png" xlink:href="./head-base.png"
                x="0" y="0" width="1000" height="1000"
                preserveAspectRatio="xMidYMin meet"></image>
 
-        <!-- bleed left-eye column -->
         <image href="./head-bleed.png" xlink:href="./head-bleed.png"
                x="0" y="0" width="1000" height="1000"
                preserveAspectRatio="xMidYMin meet"
                mask="url(#oozeMaskLeft)"></image>
 
-        <!-- bleed right-eye column -->
         <image href="./head-bleed.png" xlink:href="./head-bleed.png"
                x="0" y="0" width="1000" height="1000"
                preserveAspectRatio="xMidYMin meet"
@@ -102,28 +99,27 @@
 
       const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 
-      // Per your requirement:
+      // required baseline
       const START_Y_FRAC = 0.045;
 
-      // Scroll timing (slow overall progression)
+      // Start feeling like previous iteration (less delayed)
       const WIPE_START_PX = 0;
-      const WIPE_RANGE_PX = 5200;
+      const WIPE_RANGE_PX = 4200;
+      const FRONT_FOLLOW = 4.6;
 
-      // Two narrow wipe columns aligned to eyes (0..1000 space)
+      // eye columns
       const LEFT_CENTER_X  = 455;
       const RIGHT_CENTER_X = 545;
-      const HALF_WIDTH = 42;
+      const HALF_WIDTH = 46; // slightly wider = less "knife-like"
 
-      // Heavy horror ooze tuning
-      const LANES = 18;
-      const WOBBLE_PX = 8;
-      const DRIP_PX = 260;
-      const FRONT_FOLLOW = 2.2;
-      const LANE_FOLLOW_MIN = 2.0;
-      const LANE_FOLLOW_MAX = 4.2;
+      // rounded horror drip tuning
+      const LANES = 20;
+      const WOBBLE_PX = 6;     // reduce sharp jitter
+      const DRIP_PX = 235;     // deep drips
+      const LANE_FOLLOW_MIN = 3.0;
+      const LANE_FOLLOW_MAX = 6.2;
 
-      let smoothP = 0;
-      let lastTs = 0;
+      let smoothP = 0, lastTs = 0;
 
       function hash(n) {
         const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
@@ -136,39 +132,39 @@
           lag: LANE_FOLLOW_MIN + (LANE_FOLLOW_MAX - LANE_FOLLOW_MIN) * hash(seed + i * 1.7),
           a: hash(seed + i * 2.3) * Math.PI * 2,
           b: hash(seed + i * 3.1) * Math.PI * 2,
-          amp: 0.7 + 0.8 * hash(seed + i * 4.9),
-          bias: 1.2 + 1.8 * hash(seed + i * 6.7)
+          amp: 0.75 + 0.65 * hash(seed + i * 4.9),
+          bias: 1.45 + 1.1 * hash(seed + i * 6.7)
         }));
       }
 
       const leftState = makeState(10);
       const rightState = makeState(90);
 
-      function buildColumnPath(centerX, halfW, state, ts, dt, progress, idBase) {
+      function buildRoundedColumnPath(centerX, halfW, state, ts, dt, progress, idBase) {
         const x0 = clamp(centerX - halfW, 0, 1000);
         const x1 = clamp(centerX + halfW, 0, 1000);
 
+        // no extra creep curve -> starts engaging immediately
+        const leadY = START_Y_FRAC * 1000 + progress * ((1 - START_Y_FRAC) * 1000);
         const env = Math.sin(Math.PI * progress);
-        const creep = Math.pow(progress, 1.85); // slows early/mid descent
-        const leadY = START_Y_FRAC * 1000 + creep * ((1 - START_Y_FRAC) * 1000);
 
-        const t1 = ts * 0.0011;
-        const t2 = ts * 0.0019;
+        const t1 = ts * 0.00095;
+        const t2 = ts * 0.00155;
 
-        let d = `M ${x0} 0 L ${x1} 0 L ${x1} ${leadY} `;
-
-        for (let j = LANES; j >= 0; j--) {
+        // collect points across width
+        const pts = [];
+        for (let j = 0; j <= LANES; j++) {
           const u = j / LANES;
           const x = x0 + (x1 - x0) * u;
           const s = state[j];
 
           const wobble =
-            (Math.sin(t1 + u * 9.0 + s.a) + 0.65 * Math.sin(t2 + u * 17.0 + s.b))
+            (Math.sin(t1 + u * 7.5 + s.a) + 0.5 * Math.sin(t2 + u * 13.5 + s.b))
             * WOBBLE_PX * s.amp * (0.35 + 0.75 * env);
 
-          const p1 = (Math.sin(ts * 0.0023 + idBase + j * 1.37) + 1) * 0.5;
-          const p2 = (Math.sin(ts * 0.0047 + idBase + j * 2.11) + 1) * 0.5;
-          const pulse = Math.pow(0.55 * p1 + 0.45 * p2, s.bias);
+          const p1 = (Math.sin(ts * 0.0019 + idBase + j * 1.13) + 1) * 0.5;
+          const p2 = (Math.sin(ts * 0.0036 + idBase + j * 1.91) + 1) * 0.5;
+          const pulse = Math.pow(0.6 * p1 + 0.4 * p2, s.bias);
 
           const drip = pulse * DRIP_PX * env * s.amp;
           const target = clamp(leadY + wobble + drip, 0, 1000);
@@ -176,7 +172,19 @@
           const f = 1 - Math.exp(-dt * s.lag);
           s.y += (target - s.y) * f;
 
-          d += `L ${x} ${clamp(s.y, 0, 1000)} `;
+          pts.push({ x, y: clamp(s.y, 0, 1000) });
+        }
+
+        // Build path:
+        // top-left -> top-right -> down to first point -> smooth rounded edge with Q segments -> close
+        let d = `M ${x0} 0 L ${x1} 0 L ${pts[LANES].x} ${pts[LANES].y} `;
+
+        for (let j = LANES - 1; j >= 0; j--) {
+          const p = pts[j + 1];
+          const n = pts[j];
+          const cx = (p.x + n.x) * 0.5;
+          const cy = (p.y + n.y) * 0.5;
+          d += `Q ${p.x} ${p.y} ${cx} ${cy} `;
         }
 
         d += `L ${x0} 0 Z`;
@@ -194,8 +202,8 @@
         const f = 1 - Math.exp(-dt * FRONT_FOLLOW);
         smoothP += (raw - smoothP) * f;
 
-        leftPath.setAttribute('d', buildColumnPath(LEFT_CENTER_X, HALF_WIDTH, leftState, ts, dt, smoothP, 1000));
-        rightPath.setAttribute('d', buildColumnPath(RIGHT_CENTER_X, HALF_WIDTH, rightState, ts, dt, smoothP, 2000));
+        leftPath.setAttribute('d', buildRoundedColumnPath(LEFT_CENTER_X, HALF_WIDTH, leftState, ts, dt, smoothP, 1000));
+        rightPath.setAttribute('d', buildRoundedColumnPath(RIGHT_CENTER_X, HALF_WIDTH, rightState, ts, dt, smoothP, 2000));
 
         requestAnimationFrame(tick);
       }
